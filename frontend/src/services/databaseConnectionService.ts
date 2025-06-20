@@ -28,7 +28,8 @@ export interface CreateConnectionDto {
   options?: Record<string, any>;
 }
 
-const API_URL = '/api/connections';
+// Make sure this matches the same port as your auth service
+const API_URL = 'http://localhost:3000/api/connections';
 
 // Use the getAuthHeaders function from authUtils
 
@@ -36,8 +37,8 @@ export const databaseConnectionService = {
   // Get all connections
   async getAllConnections(): Promise<DatabaseConnection[]> {
     try {
-      const authHeader = await getAuthHeaders();
-      const response = await axios.get(API_URL, authHeader);
+      const authHeaders = await getAuthHeaders();
+      const response = await axios.get(API_URL, { headers: authHeaders });
       return response.data.data;
     } catch (error) {
       console.error('Error fetching connections:', error);
@@ -48,8 +49,8 @@ export const databaseConnectionService = {
   // Get connection by ID
   async getConnectionById(id: string): Promise<DatabaseConnection> {
     try {
-      const authHeader = await getAuthHeaders();
-      const response = await axios.get(`${API_URL}/${id}`, authHeader);
+      const authHeaders = await getAuthHeaders();
+      const response = await axios.get(`${API_URL}/${id}`, { headers: authHeaders });
       return response.data.data;
     } catch (error) {
       console.error(`Error fetching connection ${id}:`, error);
@@ -60,8 +61,8 @@ export const databaseConnectionService = {
   // Create new connection
   async createConnection(connectionData: CreateConnectionDto): Promise<DatabaseConnection> {
     try {
-      const authHeader = await getAuthHeaders();
-      const response = await axios.post(API_URL, connectionData, authHeader);
+      const authHeaders = await getAuthHeaders();
+      const response = await axios.post(API_URL, connectionData, { headers: authHeaders });
       return response.data.data;
     } catch (error) {
       console.error('Error creating connection:', error);
@@ -72,8 +73,8 @@ export const databaseConnectionService = {
   // Update connection
   async updateConnection(id: string, connectionData: Partial<CreateConnectionDto>): Promise<DatabaseConnection> {
     try {
-      const authHeader = await getAuthHeaders();
-      const response = await axios.put(`${API_URL}/${id}`, connectionData, authHeader);
+      const authHeaders = await getAuthHeaders();
+      const response = await axios.put(`${API_URL}/${id}`, connectionData, { headers: authHeaders });
       return response.data.data;
     } catch (error) {
       console.error(`Error updating connection ${id}:`, error);
@@ -84,8 +85,8 @@ export const databaseConnectionService = {
   // Delete connection
   async deleteConnection(id: string): Promise<void> {
     try {
-      const authHeader = await getAuthHeaders();
-      await axios.delete(`${API_URL}/${id}`, authHeader);
+      const authHeaders = await getAuthHeaders();
+      await axios.delete(`${API_URL}/${id}`, { headers: authHeaders });
     } catch (error) {
       console.error(`Error deleting connection ${id}:`, error);
       throw error;
@@ -95,8 +96,8 @@ export const databaseConnectionService = {
   // Test connection
   async testConnection(id: string): Promise<{ status: 'active' | 'inactive', lastTestedAt: string }> {
     try {
-      const authHeader = await getAuthHeaders();
-      const response = await axios.post(`${API_URL}/${id}/test`, {}, authHeader);
+      const authHeaders = await getAuthHeaders();
+      const response = await axios.post(`${API_URL}/${id}/test`, {}, { headers: authHeaders });
       return response.data.data;
     } catch (error) {
       console.error(`Error testing connection ${id}:`, error);
