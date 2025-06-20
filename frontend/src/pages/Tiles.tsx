@@ -50,6 +50,7 @@ interface Tile extends ServiceTile {
 
 // Extended DTO with additional properties needed for our implementation
 interface ExtendedCreateTileDto extends CreateTileDto {
+  dataModelId?: string;
   x?: number;
   y?: number;
   w?: number;
@@ -80,7 +81,7 @@ const Tiles: React.FC = () => {
   const { userData } = useAuth();
 
   // States for permissions
-  const [canEdit, setCanEdit] = useState<boolean>(false);
+  // Using userData to determine edit permissions as needed
   
   // Dialog states
   const [openDialog, setOpenDialog] = useState<boolean>(false);
@@ -100,10 +101,10 @@ const Tiles: React.FC = () => {
   const [openTileEditor, setOpenTileEditor] = useState<boolean>(false);
   const [editingTile, setEditingTile] = useState<Tile | undefined>(undefined);
 
-  useEffect(() => {
+  // Function to fetch dashboard data
+  const fetchData = async () => {
     if (!projectId || !folderId || !dashboardId) return;
-
-    const fetchData = async () => {
+    
       try {
         setLoading(true);
         // Get project details
@@ -135,8 +136,8 @@ const Tiles: React.FC = () => {
         setDataModels(models);
         
         // Check user permissions for this project
-        const hasEditPermission = await hasProjectPermission(projectId, 'edit');
-        setCanEdit(hasEditPermission);
+        // Permission check is done but we're not restricting UI yet
+        await hasProjectPermission(projectId, 'edit');
         
         setLoading(false);
       } catch (error) {
@@ -149,8 +150,10 @@ const Tiles: React.FC = () => {
       }
     };
 
+  // Load data when component mounts or dependencies change
+  useEffect(() => {
     fetchData();
-  }, [projectId, folderId, dashboardId]);
+  }, [projectId, folderId, dashboardId, userData?.id]);
 
   const handleCreateTile = () => {
     setOpenDialog(true);

@@ -8,15 +8,13 @@ import {
   Box, 
   Avatar, 
   Tooltip, 
-  Switch, 
-  FormControlLabel
+  Switch
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import AccountCircle from '@mui/icons-material/AccountCircle';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -25,10 +23,9 @@ interface NavbarProps {
   toggleSidebar: () => void;
 }
 
-const Navbar = ({ sidebarOpen, toggleSidebar }: NavbarProps) => {
+const Navbar = ({ toggleSidebar }: NavbarProps) => {
   const { userData, logout } = useAuth();
   const { mode, toggleThemeMode } = useTheme();
-  const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
@@ -39,10 +36,7 @@ const Navbar = ({ sidebarOpen, toggleSidebar }: NavbarProps) => {
     setAnchorEl(null);
   };
 
-  const handleProfile = () => {
-    navigate('/settings');
-    handleClose();
-  };
+  // handleProfile function removed as it's no longer needed
 
   const handleLogout = () => {
     logout();
@@ -73,16 +67,17 @@ const Navbar = ({ sidebarOpen, toggleSidebar }: NavbarProps) => {
         </Typography>
         
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={mode === 'dark'}
-                onChange={toggleThemeMode}
-                color="default"
-              />
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            {mode === 'dark' ? 
+              <DarkModeIcon sx={{ mr: 1 }} /> : 
+              <LightModeIcon sx={{ mr: 1 }} />
             }
-            label={mode === 'dark' ? <DarkModeIcon /> : <LightModeIcon />}
-          />
+            <Switch
+              checked={mode === 'dark'}
+              onChange={toggleThemeMode}
+              color="default"
+            />
+          </Box>
           
           <Tooltip title={userData?.displayName || 'User'}>
             <IconButton
@@ -95,7 +90,12 @@ const Navbar = ({ sidebarOpen, toggleSidebar }: NavbarProps) => {
             >
               {userData?.displayName ? (
                 <Avatar 
-                  sx={{ width: 32, height: 32, backgroundColor: 'secondary.main' }}
+                  sx={{ 
+                    width: 32, 
+                    height: 32, 
+                    bgcolor: '#104020', // Fixed color as requested
+                    color: '#ffffff' // Always white text regardless of theme
+                  }}
                 >
                   {userData.displayName[0]}
                 </Avatar>
@@ -120,7 +120,7 @@ const Navbar = ({ sidebarOpen, toggleSidebar }: NavbarProps) => {
             open={Boolean(anchorEl)}
             onClose={handleClose}
           >
-            <MenuItem onClick={handleProfile}>Profile</MenuItem>
+            {/* Profile option removed as requested */}
             <MenuItem onClick={handleLogout}>Logout</MenuItem>
           </Menu>
         </Box>

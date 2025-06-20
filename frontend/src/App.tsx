@@ -9,7 +9,6 @@ import Dashboards from './pages/Dashboards';
 import Tiles from './pages/Tiles';
 import DatabaseConnections from './pages/DatabaseConnections';
 import DataModels from './pages/DataModels';
-import Settings from './pages/Settings';
 import NotFound from './pages/NotFound';
 
 const App = () => {
@@ -48,7 +47,6 @@ const App = () => {
           </Route>
           <Route path="connections" element={<DatabaseConnections />} />
           <Route path="data-models" element={<DataModels />} />
-          <Route path="settings" element={<Settings />} />
         </Route>
         
         {/* 404 Page */}

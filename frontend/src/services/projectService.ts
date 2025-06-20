@@ -2,7 +2,7 @@ import axios from 'axios';
 import { getAuthHeaders } from '../utils/authUtils';
 
 // Backend API URL
-const API_URL = 'http://localhost:3001';
+const API_URL = 'http://localhost:3000';
 
 // Define base URLs for API endpoints according to new structure
 const PROJECT_URL = `${API_URL}/api/project`;
@@ -75,12 +75,16 @@ export interface CreateDashboardDto {
 
 export interface CreateTileDto {
   name: string;
-  projectId: string;
-  folderId: string;
   dashboardId: string;
-  visualType: string;
-  data?: any;
-  settings?: any;
+  type: 'chart' | 'table' | 'metric' | 'text';
+  position?: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  };
+  config?: any;
+  description?: string;
 }
 
 export const projectService = {

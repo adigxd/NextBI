@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Backend API URL
-const API_URL = 'http://localhost:3001';
+const API_URL = 'http://localhost:3000';
 
 // Token storage key
 const TOKEN_KEY = '79bi_auth_token';

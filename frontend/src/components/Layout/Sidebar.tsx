@@ -16,7 +16,6 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import FolderIcon from '@mui/icons-material/Folder';
 import StorageIcon from '@mui/icons-material/Storage';
 import TableChartIcon from '@mui/icons-material/TableChart';
-import SettingsIcon from '@mui/icons-material/Settings';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 
@@ -122,21 +121,7 @@ const Sidebar = ({ open }: SidebarProps) => {
           </ListItem>
         </List>
 
-        <Divider sx={{ my: 2 }} />
-
-        <List>
-          <ListItem disablePadding>
-            <ListItemButton 
-              onClick={() => handleNavigation('/settings')}
-              selected={isActive('/settings')}
-            >
-              <ListItemIcon>
-                <SettingsIcon />
-              </ListItemIcon>
-              <ListItemText primary="Settings" />
-            </ListItemButton>
-          </ListItem>
-        </List>
+        {/* Settings section removed as requested */}
       </Box>
     </Drawer>
   );
