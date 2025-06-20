@@ -1,0 +1,16 @@
+questionText,questionType,options,isRequired
+Demographics: Where are you currently based?,single-choice,India|United States|Other,true
+Demographics: What best describes your current role?,single-choice,On a client project|Internal|Hybrid,true
+Demographics: How long have you been working at/through DynPro?,single-choice,Less than a year|1-3 years|4-6 years|7+ years,true
+Execution of Work: When something important needs to get done how is it usually handled?,single-choice,Assigned clearly with ownership and deadlines|Discussed but ownership is unclear|It gets handled eventually but there's no structure|No one owns it—people step in reactively,true
+Execution of Work: When internal initiatives (new tools trackers guidelines) are introduced what typically happens?,single-choice,They're followed consistently|They're initially used then forgotten|They confuse people|They're mostly ignored,true
+Execution of Work: In general how do people communicate across teams or regions?,single-choice,Openly and proactively|Mostly within their own teams|On a need-to-know basis|Communication is inconsistent or unclear,true
+Execution of Work: When things go wrong (missed deadlines misalignment) what's the usual response?,single-choice,We openly discuss what to fix|People stay silent and adjust quietly|There's finger-pointing or blame|It gets escalated without resolution,true
+Climate: How confident are you that if you raised a valid concern it would be addressed appropriately?,single-choice,Extremely confident|Somewhat confident|Somewhat not confident|Extremely not confident,true
+Climate: In your experience how do people succeed in this company?,single-choice,By working quietly and handling stress alone|By staying visible to leadership|By solving problems without asking for help|By communicating openly and supporting others,true
+Climate: How often do you feel recognized or acknowledged for your work?,single-choice,Regularly|Occasionally|Rarely|Never,true
+Climate: Do you believe it's possible for our culture to improve in meaningful ways?,single-choice,Yes — if we listen and follow through|Maybe — but only with leadership support|Unlikely — culture doesn't really change here|No — people have given up trying,true
+Future State: Which of the following would make your day-to-day experience better? (Pick up to 3),multiple-choice,Clear ownership and expectations on tasks|A visible tracker for internal initiatives|A defined path to escalate blockers|A "how we work" doc for consistency|A space for appreciation and recognition|Leadership touchpoints focused on listening|A simpler way to share anonymous feedback,true
+Future State: How much influence do you feel you have in shaping how we work here?,single-choice,A lot — I feel my voice matters|Some — in my team or project|Very little — decisions happen elsewhere|None — I just try to keep up,true
+Future State: Would you be open to joining a small group to test improvements suggested from this survey?,single-choice,Yes|Maybe|No,true
+Response Confidence: How comfortable did you feel answering this survey honestly?,single-choice,Very comfortable — I answered freely|Mostly comfortable — I hesitated on a few things|Cautious — I held back some thoughts|Uncomfortable — I didn't feel safe being honest,true
