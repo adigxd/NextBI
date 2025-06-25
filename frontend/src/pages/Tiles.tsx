@@ -176,7 +176,7 @@ const Tiles: React.FC = () => {
     
     try {
       const tileData: ExtendedCreateTileDto = {
-        name: tileName,
+        title: tileName, // Use 'title' instead of 'name' to match backend expectations
         dashboardId,
         dataModelId: selectedDataModelId,
         type: 'chart',

@@ -24,18 +24,32 @@ export const getAccessToken = async (): Promise<string> => {
 /**
  * Create auth headers for API requests
  */
-export const getAuthHeaders = async () => {
+export const getAuthHeaders = async (): Promise<Record<string, string>> => {
   try {
-    const token = await getAccessToken();
-    console.log('Got access token for API request:', token ? 'Token available' : 'No token');
+    // First try to get token directly from localStorage for faster access
+    let token = getToken();
+    
+    if (!token) {
+      // If no token in localStorage, try to get it from the access token function
+      try {
+        token = await getAccessToken();
+      } catch (tokenError) {
+        console.error('Failed to get access token:', tokenError);
+        // Return empty headers instead of throwing
+        return {};
+      }
+    }
+    
+    console.log('Auth headers token status:', token ? 'Available' : 'Missing');
+    
     // Return headers in the correct format for Axios
-    return {
+    return token ? {
       Authorization: `Bearer ${token}`
-    };
+    } : {};
   } catch (error) {
     console.error('Error getting auth headers:', error);
-    // For debugging purposes, let's throw the error to see it in the network tab
-    throw error;
+    // Return empty headers instead of throwing to prevent API call failures
+    return {};
   }
 };
 

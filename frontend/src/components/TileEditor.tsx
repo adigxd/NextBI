@@ -297,7 +297,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
       if (tile) {
         // Update existing tile
         await projectService.updateTile(tile.id, {
-          name,
+          title: name, // Use 'title' instead of 'name' to match backend expectations
           // Remove description from the update payload as it's not in the DTO
           dataModelId,
           config: tileConfig
@@ -305,7 +305,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
       } else {
         // Create new tile
         await projectService.createTile({
-          name,
+          title: name, // Use 'title' instead of 'name' to match backend expectations
           // Remove description from the create payload as it's not in the DTO
           dashboardId,
           dataModelId,

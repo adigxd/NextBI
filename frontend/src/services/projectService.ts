@@ -74,9 +74,13 @@ export interface CreateDashboardDto {
 }
 
 export interface CreateTileDto {
-  name: string;
+  // Required fields according to backend validation
+  title: string; // Backend expects 'title' not 'name'
   dashboardId: string;
   type: 'chart' | 'table' | 'metric' | 'text';
+  
+  // Optional fields
+  dataModelId?: string;
   position?: {
     x: number;
     y: number;

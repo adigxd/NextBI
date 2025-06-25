@@ -1,4 +1,4 @@
-import { Model, DataTypes } from 'sequelize';
+import { Model, DataTypes, Association } from 'sequelize';
 import sequelize from '../config/database';
 
 // ProjectUser attributes interface
@@ -20,6 +20,18 @@ class ProjectUser extends Model<ProjectUserAttributes> implements ProjectUserAtt
   
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
+  
+  // Define associations
+  public static associate(models: any): void {
+    ProjectUser.belongsTo(models.User, { 
+      foreignKey: 'userId',
+      as: 'user'
+    });
+    ProjectUser.belongsTo(models.Project, { 
+      foreignKey: 'projectId',
+      as: 'project'
+    });
+  }
 }
 
 ProjectUser.init({

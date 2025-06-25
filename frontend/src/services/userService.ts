@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { getAuthHeaders } from '../utils/authUtils';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = 'http://localhost:3000/api';
 
 export interface User {
   id: string;
@@ -27,7 +27,7 @@ export const searchUsers = async (query: string): Promise<User[]> => {
   const authHeaders = await getAuthHeaders();
   const response = await axios.get(`${API_URL}/users/search`, {
     params: { query },
-    ...authHeaders
+    headers: authHeaders
   });
   
   return response.data.data;
@@ -38,7 +38,7 @@ export const searchUsers = async (query: string): Promise<User[]> => {
  */
 export const getCurrentUser = async (): Promise<User> => {
   const authHeaders = await getAuthHeaders();
-  const response = await axios.get(`${API_URL}/auth/me`, authHeaders);
+  const response = await axios.get(`${API_URL}/auth/me`, { headers: authHeaders });
   
   return response.data.data;
 };
@@ -49,7 +49,7 @@ export const getCurrentUser = async (): Promise<User> => {
  */
 export const getProjectUsers = async (projectId: string): Promise<ProjectUser[]> => {
   const authHeaders = await getAuthHeaders();
-  const response = await axios.get(`${API_URL}/projects/${projectId}/users`, authHeaders);
+  const response = await axios.get(`${API_URL}/projects/${projectId}/users`, { headers: authHeaders });
   
   return response.data.data;
 };
@@ -69,7 +69,7 @@ export const addUserToProject = async (
   await axios.post(
     `${API_URL}/projects/${projectId}/users`, 
     { userId, role },
-    authHeaders
+    { headers: authHeaders }
   );
 };
 
@@ -85,7 +85,7 @@ export const removeUserFromProject = async (
   const authHeaders = await getAuthHeaders();
   await axios.delete(
     `${API_URL}/projects/${projectId}/users/${userId}`, 
-    authHeaders
+    { headers: authHeaders }
   );
 };
 
