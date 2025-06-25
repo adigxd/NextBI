@@ -5,7 +5,8 @@ import {
   getDatabaseConnectionById,
   updateDatabaseConnection,
   deleteDatabaseConnection,
-  testDatabaseConnection
+  testDatabaseConnection,
+  getDatabaseSchema
 } from '../controllers/database-connection.controller';
 import { authenticate } from '../middleware/auth.middleware';
 
@@ -21,5 +22,6 @@ router.get('/:id', getDatabaseConnectionById);
 router.put('/:id', updateDatabaseConnection);
 router.delete('/:id', deleteDatabaseConnection);
 router.post('/:id/test', testDatabaseConnection);
+router.get('/:id/schema', getDatabaseSchema);
 
 export default router;

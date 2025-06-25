@@ -289,3 +289,88 @@ export const testDatabaseConnection = async (req: Request, res: Response): Promi
     });
   }
 };
+
+/**
+ * Get database schema information
+ */
+export const getDatabaseSchema = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    
+    // Find the connection in the database
+    const connection = await DatabaseConnection.findByPk(id);
+    
+    if (!connection) {
+      res.status(404).json({
+        success: false,
+        message: 'Database connection not found'
+      });
+      return;
+    }
+    
+    // For PostgreSQL connections
+    if (connection.type === 'postgresql') {
+      const pool = new Pool({
+        host: connection.host,
+        port: connection.port,
+        database: connection.database,
+        user: connection.username,
+        password: connection.password,
+        ssl: connection.ssl ? { rejectUnauthorized: false } : false,
+        connectionTimeoutMillis: 10000,
+      });
+      
+      try {
+        // Connect to the database
+        const client = await pool.connect();
+        try {
+          // Get all schemas
+          const schemasResult = await client.query(
+            "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')"
+          );
+          const schemas = schemasResult.rows.map(row => row.schema_name);
+          
+          // Get all tables for each schema
+          const tables: Record<string, string[]> = {};
+          
+          for (const schema of schemas) {
+            const tablesResult = await client.query(
+              "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE'",
+              [schema]
+            );
+            tables[schema] = tablesResult.rows.map(row => row.table_name);
+          }
+          
+          res.status(200).json({
+            success: true,
+            data: {
+              schemas,
+              tables
+            }
+          });
+        } finally {
+          client.release();
+          await pool.end();
+        }
+      } catch (error) {
+        res.status(400).json({
+          success: false,
+          message: `Failed to fetch schema: ${(error as Error).message}`
+        });
+      }
+    } else {
+      // For other database types (to be implemented)
+      res.status(400).json({
+        success: false,
+        message: `Database type ${connection.type} not supported yet`
+      });
+    }
+    
+  } catch (error) {
+    logger.error('Get schema error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve database schema'
+    });
+  }
+};

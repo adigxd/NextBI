@@ -9,6 +9,7 @@ import dataModelRoutes from './data-model.routes';
 import userRoutes from './user.routes';
 import analyticsRoutes from './analytics.routes';
 import dashboardAnalyticsRoutes from './dashboard-analytics.routes';
+import queryRoutes from './query.routes';
 
 const router = Router();
 
@@ -27,5 +28,6 @@ router.use('/data-models', dataModelRoutes);
 router.use('/users', userRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/dashboard-analytics', dashboardAnalyticsRoutes);
+router.use('/query', queryRoutes);
 
 export default router;
