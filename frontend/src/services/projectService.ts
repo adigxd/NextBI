@@ -81,13 +81,19 @@ export interface CreateTileDto {
   
   // Optional fields
   dataModelId?: string;
+  chartType?: 'bar' | 'line' | 'pie' | 'donut'; // Added at top level for backend validation
   position?: {
     x: number;
     y: number;
     w: number;
     h: number;
   };
-  config?: any;
+  config?: {
+    chartType?: 'bar' | 'line' | 'pie' | 'donut';
+    dimensions?: any[];
+    measures?: any[];
+    [key: string]: any;
+  };
   description?: string;
 }
 
@@ -428,6 +434,10 @@ export const projectService = {
   async createTile(tileData: CreateTileDto): Promise<Tile> {
     try {
       const headers = await getAuthHeaders();
+      
+      // Debug logging to see the exact payload
+      console.log('Creating tile with payload:', JSON.stringify(tileData, null, 2));
+      
       // Use the new URL structure
       const response = await axios.post(
         TILE_URL,
@@ -435,8 +445,12 @@ export const projectService = {
         { headers }
       );
       return response.data.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating tile:', error);
+      // Log the error response data if available
+      if (error.response && error.response.data) {
+        console.error('Error response data:', error.response.data);
+      }
       throw error;
     }
   },

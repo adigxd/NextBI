@@ -45,7 +45,7 @@ import { hasProjectPermission } from '../services/userService';
 
 // Extended interface for UI display with additional properties
 interface Tile extends ServiceTile {
-  chartType: 'bar' | 'line' | 'pie' | 'table';
+  chartType: 'bar' | 'line' | 'pie' | 'donut';
 }
 
 // Extended DTO with additional properties needed for our implementation
@@ -88,7 +88,7 @@ const Tiles: React.FC = () => {
   const [tileName, setTileName] = useState<string>('');
   const [tileDescription, setTileDescription] = useState<string>('');
   const [selectedDataModelId, setSelectedDataModelId] = useState<string>('');
-  const [selectedChartType, setSelectedChartType] = useState<'bar' | 'line' | 'pie' | 'table'>('bar');
+  const [selectedChartType, setSelectedChartType] = useState<'bar' | 'line' | 'pie' | 'donut'>('bar');
   
   // Menu states
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -124,10 +124,16 @@ const Tiles: React.FC = () => {
         const tileData = await projectService.getTilesByDashboardId(dashboardId);
         
         // Convert to UI format with chart type
-        const uiTiles = tileData.map(tile => ({
-          ...tile,
-          chartType: (tile.config?.chartType as 'bar' | 'line' | 'pie' | 'table') || 'bar'
-        }));
+        const uiTiles = tileData.map(tile => {
+          // Convert 'table' chart type to 'donut' for compatibility
+          const chartType = tile.config?.chartType;
+          const convertedChartType = chartType === 'table' ? 'donut' : 
+                                   (chartType as 'bar' | 'line' | 'pie' | 'donut') || 'bar';
+          return {
+            ...tile,
+            chartType: convertedChartType
+          };
+        });
         
         setTiles(uiTiles);
         
@@ -168,7 +174,7 @@ const Tiles: React.FC = () => {
   };
 
   const handleChartTypeChange = (event: SelectChangeEvent) => {
-    setSelectedChartType(event.target.value as 'bar' | 'line' | 'pie' | 'table');
+    setSelectedChartType(event.target.value as 'bar' | 'line' | 'pie' | 'donut');
   };
 
   const handleSaveTile = async () => {
@@ -180,6 +186,7 @@ const Tiles: React.FC = () => {
         dashboardId,
         dataModelId: selectedDataModelId,
         type: 'chart',
+        chartType: selectedChartType, // Add chartType at the top level for backend validation
         position: { x: 0, y: 0, w: 6, h: 4 },
         x: 0,
         y: 0,
@@ -271,8 +278,8 @@ const Tiles: React.FC = () => {
         return <PieChartIcon />;
       case 'line':
         return <ShowChartIcon />;
-      case 'table':
-        return <TableChartIcon />;
+      case 'donut':
+        return <TableChartIcon />; // Reusing TableChartIcon for donut chart
       default:
         return <BarChartIcon />;
     }
@@ -483,7 +490,7 @@ const Tiles: React.FC = () => {
               <MenuItem value="bar">Bar Chart</MenuItem>
               <MenuItem value="line">Line Chart</MenuItem>
               <MenuItem value="pie">Pie Chart</MenuItem>
-              <MenuItem value="table">Table</MenuItem>
+              <MenuItem value="donut">Donut Chart</MenuItem>
             </Select>
             <FormHelperText>Select the type of visualization</FormHelperText>
           </FormControl>

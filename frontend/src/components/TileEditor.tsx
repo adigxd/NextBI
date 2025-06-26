@@ -86,7 +86,7 @@ interface Measure {
 }
 
 interface TileConfig {
-  chartType: 'bar' | 'line' | 'pie' | 'table';
+  chartType: 'bar' | 'line' | 'pie' | 'donut';
   dimensions: Dimension[];
   measures: Measure[];
   sortBy?: {
@@ -123,7 +123,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [dataModelId, setDataModelId] = useState('');
-  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie' | 'table'>('bar');
+  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie' | 'donut'>('bar');
 
   // Data model and fields
   const [dataModels, setDataModels] = useState<DataModel[]>([]);
@@ -164,7 +164,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
       const extendedTile = tile as unknown as ExtendedTile;
       setDescription(extendedTile.description || '');
       setDataModelId(tile.dataModelId);
-      setChartType((tile.config?.chartType as 'bar' | 'line' | 'pie' | 'table') || 'bar');
+      setChartType((tile.config?.chartType as 'bar' | 'line' | 'pie' | 'donut') || 'bar');
       
       // Load dimensions and measures from tile config
       if (tile.config?.dimensions) {
@@ -215,7 +215,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
   };
 
   const handleChartTypeChange = (event: SelectChangeEvent) => {
-    setChartType(event.target.value as 'bar' | 'line' | 'pie' | 'table');
+    setChartType(event.target.value as 'bar' | 'line' | 'pie' | 'donut');
   };
 
   const handleDataModelChange = (event: SelectChangeEvent) => {
@@ -279,8 +279,8 @@ const TileEditor: React.FC<TileEditorProps> = ({
       return;
     }
 
-    // For charts other than table, require at least one dimension and one measure
-    if (chartType !== 'table' && (dimensions.length === 0 || measures.length === 0)) {
+    // For charts other than donut, require at least one dimension and one measure
+    if (chartType !== 'donut' && (dimensions.length === 0 || measures.length === 0)) {
       setError('At least one dimension and one measure are required');
       return;
     }
@@ -300,6 +300,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
           title: name, // Use 'title' instead of 'name' to match backend expectations
           // Remove description from the update payload as it's not in the DTO
           dataModelId,
+          chartType, // Add chartType at the top level for backend validation
           config: tileConfig
         });
       } else {
@@ -310,6 +311,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
           dashboardId,
           dataModelId,
           type: 'chart',
+          chartType, // Add chartType at the top level for backend validation
           position: { x: 0, y: 0, w: 6, h: 4 },
           config: tileConfig
         });
@@ -333,8 +335,8 @@ const TileEditor: React.FC<TileEditorProps> = ({
         return <PieChartIcon />;
       case 'line':
         return <LineChartIcon />;
-      case 'table':
-        return <TableChartIcon />;
+      case 'donut':
+        return <TableChartIcon />; // Reusing TableChartIcon for donut chart
       default:
         return <BarChartIcon />;
     }
@@ -425,7 +427,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
               <MenuItem value="bar">Bar Chart</MenuItem>
               <MenuItem value="line">Line Chart</MenuItem>
               <MenuItem value="pie">Pie Chart</MenuItem>
-              <MenuItem value="table">Table</MenuItem>
+              <MenuItem value="donut">Donut Chart</MenuItem>
             </Select>
             <FormHelperText>Select the type of visualization</FormHelperText>
           </FormControl>
