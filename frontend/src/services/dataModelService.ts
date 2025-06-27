@@ -23,6 +23,34 @@ export interface CreateDataModelDto {
   query?: string;
 }
 
+export interface DatabaseColumn {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  defaultValue: string | null;
+  maxLength: number | null;
+}
+
+export interface DatabaseTable {
+  name: string;
+  columns: DatabaseColumn[];
+  primaryKey?: string[];
+  foreignKeys?: Array<{
+    column: string;
+    referenceTable: string;
+    referenceColumn: string;
+  }>;
+}
+
+export interface DatabaseSchemaResponse {
+  schemas?: string[];
+  tables: DatabaseTable[] | Record<string, string[]>;
+}
+
+export interface TableColumnsResponse {
+  columns: DatabaseColumn[];
+}
+
 // Make sure this matches the same port as your auth service
 const API_URL = 'http://localhost:3000/api/data-models';
 
@@ -87,13 +115,28 @@ export const dataModelService = {
   },
 
   // Get database schema for a connection
-  async getDatabaseSchema(connectionId: string): Promise<{schemas: string[], tables: Record<string, string[]>}> {
+  async getDatabaseSchema(connectionId: string): Promise<DatabaseSchemaResponse> {
     try {
       const authHeaders = await getAuthHeaders();
-      const response = await axios.get(`http://localhost:3000/api/connections/${connectionId}/schema`, { headers: authHeaders });
+      const response = await axios.get(`http://localhost:3001/api/connections/${connectionId}/schema`, { headers: authHeaders });
       return response.data.data;
     } catch (error) {
       console.error(`Error fetching schema for connection ${connectionId}:`, error);
+      throw error;
+    }
+  },
+  
+  // Get columns for a specific table
+  async getTableColumns(connectionId: string, schema: string, tableName: string): Promise<TableColumnsResponse> {
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await axios.get(
+        `http://localhost:3001/api/connections/${connectionId}/schema/${schema}/tables/${tableName}/columns`, 
+        { headers: authHeaders }
+      );
+      return response.data.data;
+    } catch (error) {
+      console.error(`Error fetching columns for table ${schema}.${tableName}:`, error);
       throw error;
     }
   }

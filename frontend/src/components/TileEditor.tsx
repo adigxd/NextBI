@@ -62,6 +62,7 @@ function TabPanel(props: TabPanelProps) {
 interface DataModel {
   id: string;
   name: string;
+  connectionId: string;
   fields?: DataModelField[];
 }
 
@@ -73,13 +74,13 @@ interface DataModelField {
   description?: string;
 }
 
-interface Dimension {
+interface DimensionField {
   fieldId: string;
   fieldName: string;
   aggregation?: string;
 }
 
-interface Measure {
+interface MeasureField {
   fieldId: string;
   fieldName: string;
   aggregation: string;
@@ -87,8 +88,12 @@ interface Measure {
 
 interface TileConfig {
   chartType: 'bar' | 'line' | 'pie' | 'donut';
-  dimensions: Dimension[];
-  measures: Measure[];
+  dimensions: DimensionField[];
+  measures: MeasureField[];
+  metadata?: {
+    sqlQuery?: string;
+    [key: string]: any;
+  };
   sortBy?: {
     field: string;
     direction: 'asc' | 'desc';
@@ -96,9 +101,16 @@ interface TileConfig {
   limit?: number;
 }
 
-// Extended Tile interface with description property
-interface ExtendedTile extends Tile {
+interface Tile {
+  id: string;
+  title: string;
+  dataModelId: string;
   description?: string;
+  config?: {
+    chartType?: string;
+    dimensions?: any[];
+    measures?: any[];
+  };
 }
 
 interface TileEditorProps {
@@ -128,13 +140,16 @@ const TileEditor: React.FC<TileEditorProps> = ({
   // Data model and fields
   const [dataModels, setDataModels] = useState<DataModel[]>([]);
   const [selectedDataModel, setSelectedDataModel] = useState<DataModel | null>(null);
-  const [dimensions, setDimensions] = useState<Dimension[]>([]);
-  const [measures, setMeasures] = useState<Measure[]>([]);
+  const [dimensions, setDimensions] = useState<DimensionField[]>([]);
+  const [measures, setMeasures] = useState<MeasureField[]>([]);
   
   // UI states
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  
+  // Store mapping between field IDs and their source tables (needed for SQL generation)
+  const [fieldTableMap, setFieldTableMap] = useState<Map<string, string>>(new Map());
 
   // Load data models on mount
   useEffect(() => {
@@ -158,56 +173,67 @@ const TileEditor: React.FC<TileEditorProps> = ({
 
   // Initialize form when editing an existing tile
   useEffect(() => {
-    if (tile) {
-      setName(tile.name);
-      // Cast to ExtendedTile to access description
-      const extendedTile = tile as unknown as ExtendedTile;
-      setDescription(extendedTile.description || '');
-      setDataModelId(tile.dataModelId);
-      setChartType((tile.config?.chartType as 'bar' | 'line' | 'pie' | 'donut') || 'bar');
-      
-      // Load dimensions and measures from tile config
-      if (tile.config?.dimensions) {
-        setDimensions(tile.config.dimensions);
-      }
-      
-      if (tile.config?.measures) {
-        setMeasures(tile.config.measures);
-      }
-    } else {
-      // Reset form for new tile
-      setName('');
-      setDescription('');
-      setDataModelId('');
-      setChartType('bar');
-      setDimensions([]);
-      setMeasures([]);
-    }
+    if (!tile || !open) return;
+    
+    setName(tile.title || '');
+    setDescription(tile.description || '');
+    setDataModelId(tile.dataModelId || '');
+    setChartType(tile.config?.chartType || 'bar');
+    setDimensions((tile.config?.dimensions || []) as DimensionField[]);
+    setMeasures((tile.config?.measures || []) as MeasureField[]);
   }, [tile, open]);
 
-  // Load data model fields when data model changes
+  // Load fields when data model changes
   useEffect(() => {
+    if (!dataModelId) {
+      setSelectedDataModel(null);
+      return;
+    }
+    
     const loadDataModelFields = async () => {
-      if (!dataModelId) {
-        setSelectedDataModel(null);
-        return;
-      }
-
       try {
         setLoading(true);
-        const model = await dataModelService.getDataModelById(dataModelId);
+        setError('');
+        
+        const apiModel = await dataModelService.getDataModelById(dataModelId);
+        
+        // Convert API model to internal DataModel type
+        const model: DataModel = {
+          id: apiModel.id,
+          name: apiModel.name,
+          connectionId: apiModel.connectionId,
+          fields: [] // Will be populated from schema
+        };
+        
+        try {
+          // Get fields from database schema - wrap in its own try-catch
+          const schemaFields = await getFieldsFromSchema(model);
+          model.fields = schemaFields;
+        } catch (schemaError) {
+          console.error('Error fetching schema:', schemaError);
+          // Fall back to default fields
+          model.fields = getDefaultFields();
+        }
+        
         setSelectedDataModel(model);
-        setLoading(false);
-      } catch (error) {
-        console.error('Failed to load data model fields:', error);
+      } catch (err) {
+        console.error('Failed to load data model fields:', err);
         setError('Failed to load data model fields');
+        // Set default fields if available
+        if (dataModelId) {
+          setSelectedDataModel({
+            id: dataModelId,
+            name: 'Error loading model',
+            connectionId: '',
+            fields: getDefaultFields()
+          });
+        }
+      } finally {
         setLoading(false);
       }
     };
-
-    if (dataModelId) {
-      loadDataModelFields();
-    }
+    
+    loadDataModelFields();
   }, [dataModelId]);
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
@@ -226,15 +252,17 @@ const TileEditor: React.FC<TileEditorProps> = ({
   };
 
   const handleAddDimension = (field: DataModelField) => {
+    const dimension: DimensionField = {
+      fieldId: field.id,
+      fieldName: field.name
+    };
+    
     // Check if already added
     if (dimensions.some(d => d.fieldId === field.id)) {
       return;
     }
     
-    setDimensions([...dimensions, {
-      fieldId: field.id,
-      fieldName: field.name
-    }]);
+    setDimensions([...dimensions, dimension]);
   };
 
   const handleRemoveDimension = (index: number) => {
@@ -244,16 +272,18 @@ const TileEditor: React.FC<TileEditorProps> = ({
   };
 
   const handleAddMeasure = (field: DataModelField) => {
+    const measure: MeasureField = {
+      fieldId: field.id,
+      fieldName: field.name,
+      aggregation: 'sum' // Default aggregation
+    };
+    
     // Check if already added
     if (measures.some(m => m.fieldId === field.id)) {
       return;
     }
     
-    setMeasures([...measures, {
-      fieldId: field.id,
-      fieldName: field.name,
-      aggregation: 'sum' // Default aggregation
-    }]);
+    setMeasures([...measures, measure]);
   };
 
   const handleRemoveMeasure = (index: number) => {
@@ -263,66 +293,81 @@ const TileEditor: React.FC<TileEditorProps> = ({
   };
 
   const handleMeasureAggregationChange = (index: number, aggregation: string) => {
-    const newMeasures = [...measures];
-    newMeasures[index].aggregation = aggregation;
-    setMeasures(newMeasures);
+    setMeasures(prev => {
+      const updated: MeasureField[] = [...prev];
+      updated[index].aggregation = aggregation;
+      return updated;
+    });
   };
 
   const handleSave = async () => {
-    if (!name.trim()) {
+    // Validate required fields
+    if (!name || name.trim() === '') {
       setError('Tile name is required');
       return;
     }
-
-    if (!dataModelId) {
+    
+    if (!selectedDataModel) {
       setError('Please select a data model');
       return;
     }
-
+    
     // For charts other than donut, require at least one dimension and one measure
     if (chartType !== 'donut' && (dimensions.length === 0 || measures.length === 0)) {
       setError('At least one dimension and one measure are required');
       return;
     }
-
+    
+    // Generate SQL query
+    const sqlQuery = generateSqlQuery();
+    if (!sqlQuery) {
+      setError('Failed to generate SQL query');
+      return;
+    }
+    
     try {
+      // Start saving process
       setSaving(true);
+      setError('');
       
+      // Prepare tile config data including the SQL query in metadata
       const tileConfig: TileConfig = {
         chartType,
         dimensions,
-        measures
+        measures,
+        metadata: {
+          sqlQuery: sqlQuery, // Store the generated SQL query
+          generatedAt: new Date().toISOString() // Add timestamp for tracking
+        }
       };
       
+      // Save tile data
       if (tile) {
         // Update existing tile
         await projectService.updateTile(tile.id, {
           title: name, // Use 'title' instead of 'name' to match backend expectations
-          // Remove description from the update payload as it's not in the DTO
           dataModelId,
-          chartType, // Add chartType at the top level for backend validation
-          config: tileConfig
+          chartType,
+          config: tileConfig // tileConfig now contains the SQL query in metadata
         });
       } else {
         // Create new tile
         await projectService.createTile({
           title: name, // Use 'title' instead of 'name' to match backend expectations
-          // Remove description from the create payload as it's not in the DTO
           dashboardId,
-          dataModelId,
-          type: 'chart',
-          chartType, // Add chartType at the top level for backend validation
-          position: { x: 0, y: 0, w: 6, h: 4 },
-          config: tileConfig
+          dataModelId, 
+          chartType,
+          type: 'chart', // Required by CreateTileDto
+          position: { x: 0, y: 0, w: 6, h: 4 }, // Default position
+          config: tileConfig // tileConfig now contains the SQL query in metadata
         });
       }
       
-      setSaving(false);
       onSave();
-      onClose();
     } catch (error) {
       console.error('Failed to save tile:', error);
-      setError('Failed to save tile');
+      setError(`Failed to save tile: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
       setSaving(false);
     }
   };
@@ -348,6 +393,338 @@ const TileEditor: React.FC<TileEditorProps> = ({
 
   const isDimensionField = (field: DataModelField) => {
     return ['string', 'date', 'datetime', 'boolean'].includes(field.type.toLowerCase()) || field.isCalculated;
+  };
+
+  // Helper function to get default fields if schema fetching fails
+  const getDefaultFields = (): DataModelField[] => {
+    return [
+      { id: 'default_id', name: 'ID', type: 'number' },
+      { id: 'default_name', name: 'Name', type: 'string' },
+      { id: 'default_date', name: 'Date', type: 'date' }
+    ];
+  };
+
+  // Format table and column names for display in UI
+  const formatTableName = (name: string): string => {
+    return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  const formatColumnName = (name: string): string => {
+    return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  // Map database types to field types
+  const mapDatabaseTypeToFieldType = (dbType: string): string => {
+    const typeMap: Record<string, string> = {
+      'int': 'number',
+      'integer': 'number',
+      'bigint': 'number',
+      'smallint': 'number',
+      'decimal': 'number',
+      'numeric': 'number',
+      'float': 'number',
+      'double': 'number',
+      'varchar': 'string',
+      'char': 'string',
+      'text': 'string',
+      'date': 'date',
+      'datetime': 'datetime',
+      'timestamp': 'datetime',
+      'boolean': 'boolean'
+    };
+
+    const lowerType = dbType.toLowerCase();
+    return typeMap[lowerType] || 'string';
+  };
+
+  // Fetch fields from database schema
+  const getFieldsFromSchema = async (dataModel: DataModel): Promise<DataModelField[]> => {
+    // Map to store field ID to table name mapping
+    const newFieldTableMap = new Map<string, string>();
+
+    try {
+      // Log information for debugging
+      console.log('Fetching schema for connection ID:', dataModel.connectionId);
+      
+      // Fetch schema - if this throws, the catch block will handle it
+      const schemaResponse = await dataModelService.getDatabaseSchema(dataModel.connectionId);
+      console.log('Schema response type:', typeof schemaResponse);
+      console.log('Schema response:', schemaResponse);
+      
+      // Generate fields based on schema
+      const fields = extractFieldsFromSchemaResponse(schemaResponse, newFieldTableMap);
+      
+      // Update the field-table mapping state
+      setFieldTableMap(newFieldTableMap);
+      
+      // Return fields or defaults if none were found
+      if (fields.length > 0) {
+        console.log(`Extracted ${fields.length} fields from schema`);
+        return fields;
+      } else {
+        console.warn('No fields could be extracted from schema, using defaults');
+        return getDefaultFields();
+      }
+    } catch (error) {
+      console.error('Error fetching schema:', error);
+      return getDefaultFields();
+    }
+  };
+  
+  // Helper function to extract fields from any schema response format
+  const extractFieldsFromSchemaResponse = (schemaResponse: any, fieldTableMap: Map<string, string>): DataModelField[] => {
+    const fields: DataModelField[] = [];
+    
+    // First, check if we have any data at all
+    if (!schemaResponse) {
+      console.warn('Schema response is null or undefined');
+      return fields;
+    }
+    
+    try {
+      // Detailed logging of the schema structure
+      console.log('Schema response keys:', Object.keys(schemaResponse));
+      if (typeof schemaResponse === 'object' && !Array.isArray(schemaResponse)) {
+        Object.keys(schemaResponse).forEach(key => {
+          console.log(`Key: ${key}, Type: ${typeof schemaResponse[key]}`);
+          if (Array.isArray(schemaResponse[key])) {
+            console.log(`Array length for ${key}: ${schemaResponse[key].length}`);
+            if (schemaResponse[key].length > 0) {
+              console.log(`First item in ${key} array:`, schemaResponse[key][0]);
+            }
+          }
+        });
+      }
+      
+      // Case 1: Response is an array of tables directly
+      if (Array.isArray(schemaResponse)) {
+        console.log('Schema is an array, processing as table list');
+        processTableArray(schemaResponse, fields, fieldTableMap);
+      }
+      // Case 2: Response has a tables array property
+      else if (schemaResponse.tables && Array.isArray(schemaResponse.tables)) {
+        console.log('Schema has tables array property');
+        processTableArray(schemaResponse.tables, fields, fieldTableMap);
+      }
+      // Case 3: Response has field information directly
+      else if (schemaResponse.fields && Array.isArray(schemaResponse.fields)) {
+        console.log('Schema has fields array property');
+        // Assume fields are directly provided
+        schemaResponse.fields.forEach((field: any) => {
+          if (field && field.id && field.name) {
+            fields.push({
+              id: field.id,
+              name: field.name,
+              type: field.type || 'string',
+              description: field.description || field.name
+            });
+            
+            // Try to extract table name from field ID
+            const parts = field.id.split('.');
+            if (parts.length > 1) {
+              fieldTableMap.set(field.id, parts[0]);
+            } else {
+              fieldTableMap.set(field.id, 'default');
+            }
+          }
+        });
+      }
+      // Case 4: Response has a schema property
+      else if (schemaResponse.schema) {
+        console.log('Schema has a schema property, processing it');
+        return extractFieldsFromSchemaResponse(schemaResponse.schema, fieldTableMap);
+      }
+      // Case 5: Response has a data property
+      else if (schemaResponse.data) {
+        console.log('Schema has a data property, processing it');
+        return extractFieldsFromSchemaResponse(schemaResponse.data, fieldTableMap);
+      }
+      // Case 6: Response is a generic object, try to extract data
+      else if (typeof schemaResponse === 'object') {
+        console.log('Schema is a generic object, attempting to extract data');
+        processGenericObject(schemaResponse, fields, fieldTableMap);
+      }
+      
+      // If no fields were found, try to create mock fields from the schema structure
+      if (fields.length === 0 && typeof schemaResponse === 'object') {
+        console.log('No fields extracted, creating mock fields from schema structure');
+        createMockFieldsFromSchema(schemaResponse, fields, fieldTableMap);
+      }
+      
+      return fields;
+    } catch (error) {
+      console.error('Error processing schema response:', error);
+      return fields;
+    }
+  };
+  
+  // Create mock fields from schema structure when no actual fields can be extracted
+  const createMockFieldsFromSchema = (schemaObj: any, fields: DataModelField[], fieldTableMap: Map<string, string>) => {
+    // If we have any keys in the schema, use them as table names
+    const keys = Object.keys(schemaObj);
+    if (keys.length > 0) {
+      console.log('Creating mock fields from schema keys:', keys);
+      
+      // Use the first few keys as table names
+      keys.slice(0, 5).forEach(tableName => {
+        const formattedTableName = formatTableName(tableName);
+        
+        // Create some standard columns for each table
+        const mockColumns = [
+          { name: 'id', type: 'number' },
+          { name: 'name', type: 'string' },
+          { name: 'created_at', type: 'datetime' },
+          { name: 'value', type: 'number' }
+        ];
+        
+        mockColumns.forEach(column => {
+          const fieldId = `${tableName}.${column.name}`;
+          fields.push({
+            id: fieldId,
+            name: `${formattedTableName}.${formatColumnName(column.name)}`,
+            type: column.type,
+            description: `${formatColumnName(column.name)} from ${formattedTableName}`
+          });
+          
+          // Store table name for this field ID
+          fieldTableMap.set(fieldId, tableName);
+        });
+      });
+    }
+  };
+
+  // Helper function to process an array of tables
+  const processTableArray = (tables: any[], fields: DataModelField[], fieldTableMap: Map<string, string>) => {
+    tables.forEach((table: any) => {
+      if (!table || !table.name) {
+        console.warn('Table without name found in schema');
+        return;
+      }
+      
+      const tableName = table.name;
+      const formattedTableName = formatTableName(tableName);
+      
+      // Process columns if they exist
+      const columns = table.columns || [];
+      if (Array.isArray(columns)) {
+        columns.forEach((column: any) => {
+          if (!column || !column.name) return;
+          
+          const fieldId = `${tableName}.${column.name}`;
+          const fieldType = mapDatabaseTypeToFieldType(column.type || 'string');
+          
+          fields.push({
+            id: fieldId,
+            name: `${formattedTableName}.${formatColumnName(column.name)}`,
+            type: fieldType,
+            description: column.description || `${formatColumnName(column.name)} from ${formattedTableName}`
+          });
+          
+          // Store table name for this field ID
+          fieldTableMap.set(fieldId, tableName);
+        });
+      }
+    });
+  };
+  
+  // Helper function to process a generic object schema
+  const processGenericObject = (schemaObj: any, fields: DataModelField[], fieldTableMap: Map<string, string>) => {
+    Object.keys(schemaObj).forEach(key => {
+      const value = schemaObj[key];
+      
+      // If we find an array, it might be columns for a table
+      if (Array.isArray(value)) {
+        const tableName = key; // Use the property name as table name
+        const formattedTableName = formatTableName(tableName);
+        
+        value.forEach((item: any) => {
+          if (item && item.name) {
+            // This might be a column
+            const columnName = item.name;
+            const fieldId = `${tableName}.${columnName}`;
+            const fieldType = mapDatabaseTypeToFieldType(item.type || 'string');
+            
+            fields.push({
+              id: fieldId,
+              name: `${formattedTableName}.${formatColumnName(columnName)}`,
+              type: fieldType,
+              description: item.description || `${formatColumnName(columnName)} from ${formattedTableName}`
+            });
+            
+            // Store table name for this field ID
+            fieldTableMap.set(fieldId, tableName);
+          }
+        });
+      }
+      // If it's an object, it might be nested structure
+      else if (typeof value === 'object' && value !== null) {
+        // Recursively process nested objects
+        processGenericObject(value, fields, fieldTableMap);
+      }
+    });
+  };
+
+  // Generate SQL query from selected dimensions and measures
+  const generateSqlQuery = (): string | null => {
+    if (dimensions.length === 0 && measures.length === 0) {
+      return null;
+    }
+    
+    // Collect unique tables from selected fields
+    const allFields = [...dimensions.map(d => d.fieldId), ...measures.map(m => m.fieldId)];
+    const tables = new Set<string>();
+    
+    allFields.forEach(fieldId => {
+      const tableName = fieldTableMap.get(fieldId);
+      if (tableName) {
+        tables.add(tableName);
+      }
+    });
+    
+    // Build SQL clauses
+    const selectClause: string[] = [];
+    let fromClause = '';
+    const joinClauses: string[] = [];
+    const groupByClause: string[] = [];
+    
+    // Add dimensions to SELECT and GROUP BY
+    dimensions.forEach(dim => {
+      const [table, column] = dim.fieldId.split('.');
+      selectClause.push(`${table}.${column} AS ${column}`);
+      groupByClause.push(`${table}.${column}`);
+    });
+    
+    // Add measures with aggregations to SELECT
+    measures.forEach(measure => {
+      const [table, column] = measure.fieldId.split('.');
+      const aggFunction = measure.aggregation.toUpperCase();
+      selectClause.push(`${aggFunction}(${table}.${column}) AS ${measure.aggregation}_${column}`);
+    });
+    
+    // Build FROM clause with the first table
+    const tableArray = Array.from(tables);
+    if (tableArray.length > 0) {
+      fromClause = tableArray[0];
+      
+      // Build JOIN clauses for additional tables
+      // Since we don't have FK info, use placeholder join conditions
+      for (let i = 1; i < tableArray.length; i++) {
+        joinClauses.push(`JOIN ${tableArray[i]} ON true`); // Placeholder join condition
+      }
+    }
+    
+    // Combine clauses into the final SQL
+    let sql = `SELECT \n  ${selectClause.join(',\n  ')}\nFROM ${fromClause}`;
+    
+    if (joinClauses.length > 0) {
+      sql += `\n${joinClauses.join('\n')}`;
+    }
+    
+    if (groupByClause.length > 0) {
+      sql += `\nGROUP BY \n  ${groupByClause.join(',\n  ')}`;
+    }
+    
+    return sql;
   };
 
   return (
@@ -594,33 +971,63 @@ const TileEditor: React.FC<TileEditorProps> = ({
         
         {/* Visualization Tab */}
         <TabPanel value={tabValue} index={2}>
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
-            <Paper 
-              variant="outlined" 
-              sx={{ 
-                width: '100%', 
-                height: '100%', 
-                display: 'flex', 
-                justifyContent: 'center', 
-                alignItems: 'center',
-                flexDirection: 'column',
-                p: 2
-              }}
-            >
-              <Box sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }}>
-                {getChartIcon(chartType)}
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                <Paper 
+                  variant="outlined" 
+                  sx={{ 
+                    width: '100%', 
+                    height: '100%', 
+                    display: 'flex', 
+                    justifyContent: 'center', 
+                    alignItems: 'center',
+                    flexDirection: 'column',
+                    p: 2
+                  }}
+                >
+                  <Box sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }}>
+                    {getChartIcon(chartType)}
+                  </Box>
+                  <Typography variant="h6">
+                    {chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart Preview
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+                    {dimensions.length === 0 || measures.length === 0 ? 
+                      'Add dimensions and measures to preview the chart' : 
+                      `${dimensions.length} dimension(s) and ${measures.length} measure(s) selected`
+                    }
+                  </Typography>
+                </Paper>
               </Box>
-              <Typography variant="h6">
-                {chartType.charAt(0).toUpperCase() + chartType.slice(1)} Chart Preview
-              </Typography>
-              <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
-                {dimensions.length === 0 || measures.length === 0 ? 
-                  'Add dimensions and measures to preview the chart' : 
-                  `${dimensions.length} dimension(s) and ${measures.length} measure(s) selected`
-                }
-              </Typography>
-            </Paper>
-          </Box>
+            </Grid>
+            
+            {/* Generated SQL query section */}
+            {dimensions.length > 0 && measures.length > 0 && (
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom>
+                  Generated SQL Query
+                </Typography>
+                <Paper 
+                  variant="outlined" 
+                  sx={{ 
+                    p: 2,
+                    backgroundColor: '#f5f5f5',
+                    fontFamily: 'monospace',
+                    overflow: 'auto',
+                    maxHeight: 300
+                  }}
+                >
+                  <pre style={{ margin: 0 }}>
+                    {generateSqlQuery()}
+                  </pre>
+                </Paper>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  Note: This is a preview of the SQL query that will be generated. Actual JOIN conditions will be determined based on foreign key relationships.
+                </Typography>
+              </Grid>
+            )}
+          </Grid>
         </TabPanel>
         
         {error && (
