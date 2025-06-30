@@ -361,7 +361,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
       
       setMeasures([...measures, newMeasure]);
       // Store table name for this field ID
-      fieldTableMap.set(newMeasure.fieldId, field.table);
+      fieldTableMap.set(fieldId, field.table);
     }
   };
 
@@ -660,273 +660,289 @@ const TileEditor: React.FC<TileEditorProps> = ({
         
         {/* Data Tab */}
         <TabPanel value={tabValue} index={1}>
-          {tileType === 'text' ? (
-            <Grid container spacing={3}>
+  {tileType === 'text' ? (
+    <Grid container spacing={3}>
+      <Grid item xs={12}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+          <Typography variant="h6">Text Content</Typography>
+          <Button
+            variant="outlined"
+            startIcon={<AddIcon />}
+            size="small"
+            onClick={handleAddTextRow}
+          >
+            Add Row
+          </Button>
+        </Box>
+        
+        {textRows.map((row) => (
+          <Paper
+            key={row.id}
+            variant="outlined"
+            sx={{ p: 2, mb: 2 }}
+          >
+            <Grid container spacing={2}>
+              {/* Row Controls */}
               <Grid item xs={12}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                  <Typography variant="h6">Text Content</Typography>
-                  <Button
-                    variant="outlined"
-                    startIcon={<AddIcon />}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <ToggleButtonGroup
+                    value={row.type}
+                    exclusive
+                    onChange={(_, newType) => newType && handleTextRowTypeChange(row.id, newType as 'header' | 'subheader' | 'text')}
                     size="small"
-                    onClick={handleAddTextRow}
                   >
-                    Add Row
-                  </Button>
-                </Box>
-                
-                {textRows.map((row) => (
-                  <Paper
-                    key={row.id}
-                    variant="outlined"
-                    sx={{ p: 2, mb: 2 }}
-                  >
-                    <Grid container spacing={2}>
-                      {/* Row Controls */}
-                      <Grid item xs={12}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                          <ToggleButtonGroup
-                            value={row.type}
-                            exclusive
-                            onChange={(_, newType) => newType && handleTextRowTypeChange(row.id, newType as 'header' | 'subheader' | 'text')}
-                            size="small"
-                          >
-                            <ToggleButton value="header">
-                              <TitleIcon fontSize="small" />
-                              <Typography variant="body2" sx={{ ml: 1 }}>
-                                Header
-                              </Typography>
-                            </ToggleButton>
-                            <ToggleButton value="subheader">
-                              <SubtitlesIcon fontSize="small" />
-                              <Typography variant="body2" sx={{ ml: 1 }}>
-                                Subheader
-                              </Typography>
-                            </ToggleButton>
-                            <ToggleButton value="text">
-                              <TextFieldsIcon fontSize="small" />
-                              <Typography variant="body2" sx={{ ml: 1 }}>
-                                Text
-                              </Typography>
-                            </ToggleButton>
-                          </ToggleButtonGroup>
-                          
-                          <Box>
-                            <FormControlLabel
-                              control={
-                                <Switch
-                                  checked={row.isQuery}
-                                  onChange={() => handleToggleRowQueryMode(row.id)}
-                                  size="small"
-                                  disabled={!connectionId}
-                                />
-                              }
-                              label={row.isQuery ? "SQL Query" : "Direct Text"}
-                              labelPlacement="start"
-                            />
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleRemoveTextRow(row.id)}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Box>
-                        </Box>
-                      </Grid>
-                      
-                      {/* Content Input */}
-                      <Grid item xs={12}>
-                        {row.isQuery ? (
-                          <TextField
-                            label="SQL Query"
-                            multiline
-                            rows={4}
-                            placeholder="SELECT column FROM table WHERE condition"
-                            fullWidth
-                            variant="outlined"
-                            value={row.content}
-                            onChange={(e) => handleTextRowContentChange(row.id, e.target.value)}
-                            error={!connectionId}
-                            helperText={!connectionId ? "Select a connection to enable SQL queries" : ""}
-                            InputProps={{
-                              startAdornment: <CodeIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                            }}
-                          />
-                        ) : (
-                          <TextField
-                            label={row.type.charAt(0).toUpperCase() + row.type.slice(1) + " Content"}
-                            multiline
-                            rows={row.type === 'header' ? 1 : row.type === 'subheader' ? 2 : 3}
-                            placeholder={`Enter ${row.type} content here`}
-                            fullWidth
-                            variant="outlined"
-                            value={row.content}
-                            onChange={(e) => handleTextRowContentChange(row.id, e.target.value)}
-                          />
-                        )}
-                      </Grid>
-                      
-                      {/* Preview of how the text will look */}
-                      {row.content && !row.isQuery && (
-                        <Grid item xs={12}>
-                          <Typography variant="caption" sx={{ color: 'text.secondary', mb: 1, display: 'block' }}>
-                            Preview:
-                          </Typography>
-                          {row.type === 'header' && (
-                            <Typography variant="h4">{row.content}</Typography>
-                          )}
-                          {row.type === 'subheader' && (
-                            <Typography variant="h5">{row.content}</Typography>
-                          )}
-                          {row.type === 'text' && (
-                            <Typography variant="body1">{row.content}</Typography>
-                          )}
-                        </Grid>
-                      )}
-                      
-                      {/* SQL Query result preview */}
-                      {row.isQuery && row.content && connectionId && (
-                        <Grid item xs={12}>
-                          <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<StorageIcon />}
-                            onClick={() => {
-                              // Logic to execute the SQL query and show results
-                              console.log(`Execute query: ${row.content} on connection: ${connectionId}`);
-                            }}
-                          >
-                            Test Query
-                          </Button>
-                        </Grid>
-                      )}
-                    </Grid>
-                  </Paper>
-                ))}
-                
-                {textRows.length === 0 && (
-                  <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <Typography color="text.secondary">
-                      No text rows added. Click "Add Row" to create content.
-                    </Typography>
+                    <ToggleButton value="header">
+                      <TitleIcon fontSize="small" />
+                      <Typography variant="body2" sx={{ ml: 1 }}>
+                        Header
+                      </Typography>
+                    </ToggleButton>
+                    <ToggleButton value="subheader">
+                      <SubtitlesIcon fontSize="small" />
+                      <Typography variant="body2" sx={{ ml: 1 }}>
+                        Subheader
+                      </Typography>
+                    </ToggleButton>
+                    <ToggleButton value="text">
+                      <TextFieldsIcon fontSize="small" />
+                      <Typography variant="body2" sx={{ ml: 1 }}>
+                        Text
+                      </Typography>
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                  
+                  <Box>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={row.isQuery}
+                          onChange={() => handleToggleRowQueryMode(row.id)}
+                          size="small"
+                          disabled={!connectionId}
+                        />
+                      }
+                      label={row.isQuery ? "SQL Query" : "Direct Text"}
+                      labelPlacement="start"
+                    />
+                    <IconButton
+                      size="small" 
+                      color="error"
+                      onClick={() => handleRemoveTextRow(row.id)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
                   </Box>
+                </Box>
+              </Grid>
+              
+              {/* Content Input */}
+              <Grid item xs={12}>
+                {row.isQuery ? (
+                  <TextField
+                    label="SQL Query"
+                    multiline
+                    rows={4}
+                    placeholder="SELECT column FROM table WHERE condition"
+                    fullWidth
+                    variant="outlined"
+                    value={row.content}
+                    onChange={(e) => handleTextRowContentChange(row.id, e.target.value)}
+                    error={!connectionId}
+                    helperText={!connectionId ? "Select a connection to enable SQL queries" : ""}
+                    InputProps={{
+                      startAdornment: <CodeIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                    }}
+                  />
+                ) : (
+                  <TextField
+                    label={row.type.charAt(0).toUpperCase() + row.type.slice(1) + " Content"}
+                    multiline
+                    rows={row.type === 'header' ? 1 : row.type === 'subheader' ? 2 : 3}
+                    placeholder={`Enter ${row.type} content here`}
+                    fullWidth
+                    variant="outlined"
+                    value={row.content}
+                    onChange={(e) => handleTextRowContentChange(row.id, e.target.value)}
+                  />
                 )}
               </Grid>
-            </Grid>
-          ) : (
-            <Grid container spacing={3}>
-              {/* For non-text tile types, show dimensions and measures */}
-              <Grid item xs={12} md={6}>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="h6" gutterBottom>Dimensions</Typography>
-                  <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                    {dimensions.length > 0 ? (
-                      dimensions.map((dimension, index) => (
-                        <Chip
-                          key={index}
-                          label={dimension.fieldName}
-                          onDelete={() => handleRemoveDimension(index)}
-                          sx={{ m: 0.5 }}
-                        />
-                      ))
-                    ) : (
-                      <Typography color="text.secondary">
-                        No dimensions selected. Select fields from the list below.
-                      </Typography>
-                    )}
-                  </Paper>
-
-                  <Typography variant="subtitle2" gutterBottom>Available Fields</Typography>
-                  <Paper variant="outlined" sx={{ p: 2, maxHeight: 200, overflow: 'auto' }}>
-                    {databaseFields.map((field) => (
-                      <Chip
-                        key={field.name + field.table}
-                        label={`${field.table}.${field.name}`}
-                        onClick={() => handleAddDimension(field)}
-                        sx={{ m: 0.5, cursor: 'pointer' }}
-                        variant="outlined"
-                      />
-                    ))}
-                    {databaseFields.length === 0 && (
-                      <Typography color="text.secondary">
-                        {loading ? 'Loading fields...' : 'Select a connection to view available fields'}
-                      </Typography>
-                    )}
-                  </Paper>
-                </Box>
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="h6" gutterBottom>Measures</Typography>
-                  <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                    {measures.length > 0 ? (
-                      measures.map((measure, index) => (
-                        <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                          <Chip
-                            label={`${measure.aggregation}(${measure.fieldName})`}
-                            onDelete={() => handleRemoveMeasure(index)}
-                            sx={{ mr: 1 }}
-                          />
-                          <Select
-                            value={measure.aggregation}
-                            onChange={(e) => handleMeasureAggregationChange(index, e.target.value)}
-                            size="small"
-                            sx={{ minWidth: 100 }}
-                          >
-                            <MenuItem value="sum">Sum</MenuItem>
-                            <MenuItem value="avg">Average</MenuItem>
-                            <MenuItem value="min">Min</MenuItem>
-                            <MenuItem value="max">Max</MenuItem>
-                            <MenuItem value="count">Count</MenuItem>
-                          </Select>
-                        </Box>
-                      ))
-                    ) : (
-                      <Typography color="text.secondary">
-                        No measures selected. Select fields from the list below.
-                      </Typography>
-                    )}
-                  </Paper>
-
-                  <Typography variant="subtitle2" gutterBottom>Available Numeric Fields</Typography>
-                  <Paper variant="outlined" sx={{ p: 2, maxHeight: 200, overflow: 'auto' }}>
-                    {databaseFields.filter(isNumericField).map((field) => (
-                      <Chip
-                        key={field.name + field.table}
-                        label={`${field.table}.${field.name}`}
-                        onClick={() => handleAddMeasure(field)}
-                        sx={{ m: 0.5, cursor: 'pointer' }}
-                        variant="outlined"
-                      />
-                    ))}
-                    {databaseFields.filter(isNumericField).length === 0 && (
-                      <Typography color="text.secondary">
-                        {loading ? 'Loading fields...' : 'No numeric fields available for measures'}
-                      </Typography>
-                    )}
-                  </Paper>
-                </Box>
-              </Grid>
-
-              {/* SQL Preview */}
-              {dimensions.length > 0 && measures.length > 0 && connectionId && (
+              
+              {/* Preview of how the text will look */}
+              {row.content && !row.isQuery && (
                 <Grid item xs={12}>
-                  <Typography variant="h6" gutterBottom>Generated SQL Preview</Typography>
-                  <Paper variant="outlined" sx={{ p: 2 }}>
-                    <pre style={{ whiteSpace: 'pre-wrap', overflow: 'auto' }}>
-                      {generateSqlQuery()}
-                    </pre>
-                  </Paper>
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                    Note: This is a preview of the SQL query that will be generated. Actual JOIN conditions will be determined based on foreign key relationships.
+                  <Typography variant="caption" sx={{ color: 'text.secondary', mb: 1, display: 'block' }}>
+                    Preview:
                   </Typography>
+                  {row.type === 'header' && (
+                    <Typography variant="h4">{row.content}</Typography>
+                  )}
+                  {row.type === 'subheader' && (
+                    <Typography variant="h5">{row.content}</Typography>
+                  )}
+                  {row.type === 'text' && (
+                    <Typography variant="body1">{row.content}</Typography>
+                  )}
+                </Grid>
+              )}
+              
+              {/* SQL Query result preview */}
+              {row.isQuery && row.content && connectionId && (
+                <Grid item xs={12}>
+                  <Button
+                    variant="outlined" 
+                    size="small"
+                    startIcon={<StorageIcon />}
+                    onClick={() => {
+                      // Logic to execute the SQL query and show results
+                      console.log(`Execute query: ${row.content} on connection: ${connectionId}`);
+                    }}
+                  >
+                    Test Query
+                  </Button>
                 </Grid>
               )}
             </Grid>
-          )}
-        </TabPanel>
+          </Paper>
+        ))}
+        
+        {textRows.length === 0 && (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Typography color="text.secondary">
+              No text rows added. Click "Add Row" to create content.
+            </Typography>
+          </Box>
+        )}
+      </Grid>
+    </Grid>
+  ) : (
+    <Grid container spacing={3}>
+      {/* For non-text tile types, show dimensions and measures */}
+      <Grid item xs={12} md={6}>
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="h6" gutterBottom>Dimensions</Typography>
+          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+            {dimensions.length > 0 ? (
+              dimensions.map((dimension, index) => (
+                <Chip
+                  key={index}
+                  label={dimension.fieldName}
+                  onDelete={() => handleRemoveDimension(index)}
+                  sx={{ m: 0.5 }}
+                />
+              ))
+            ) : (
+              <Typography color="text.secondary">
+                No dimensions selected. Select fields from the list below.
+              </Typography>
+            )}
+          </Paper>
+          
+          <Typography variant="subtitle2" gutterBottom>Available Fields</Typography>
+          <Paper variant="outlined" sx={{ p: 2, maxHeight: 200, overflow: 'auto' }}>
+            {databaseFields.map((field) => (
+              <Chip
+                key={field.name + field.table}
+                label={`${field.table}.${field.name}`}
+                onClick={() => handleAddDimension(field)}
+                sx={{ m: 0.5, cursor: 'pointer' }}
+                variant="outlined"
+              />
+            ))}
+            {databaseFields.length === 0 && (
+              <Typography color="text.secondary">
+                {loading ? 'Loading fields...' : 'Select a connection to view available fields'}
+              </Typography>
+            )}
+          </Paper>
+        </Box>
+      </Grid>
+      
+      <Grid item xs={12} md={6}>
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="h6" gutterBottom>Measures</Typography>
+          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+            {measures.length > 0 ? (
+              measures.map((measure, index) => (
+                <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                  <Chip
+                    label={`${measure.aggregation}(${measure.fieldName})`}
+                    onDelete={() => handleRemoveMeasure(index)}
+                    sx={{ mr: 1 }}
+                  />
+                  <Select
+                    value={measure.aggregation}
+                    onChange={(e) => handleMeasureAggregationChange(index, e.target.value)}
+                    size="small"
+                    sx={{ minWidth: 100 }}
+                  >
+                    <MenuItem value="sum">Sum</MenuItem>
+                    <MenuItem value="avg">Average</MenuItem>
+                    <MenuItem value="min">Min</MenuItem>
+                    <MenuItem value="max">Max</MenuItem>
+                    <MenuItem value="count">Count</MenuItem>
+                  </Select>
+                </Box>
+              ))
+            ) : (
+              <Typography color="text.secondary">
+                No measures selected. Select fields from the list below.
+              </Typography>
+            )}
+          </Paper>
+          
+          <Typography variant="subtitle2" gutterBottom>Available Fields</Typography>
+          <Paper variant="outlined" sx={{ p: 2, maxHeight: 200, overflow: 'auto' }}>
+            {databaseFields.map((field) => (
+              <Chip
+                key={field.name + field.table}
+                label={`${field.table}.${field.name}`}
+                onClick={() => isNumericField(field) ? handleAddMeasure(field) : null}
+                sx={{
+                  m: 0.5,
+                  cursor: isNumericField(field) ? 'pointer' : 'not-allowed',
+                  opacity: isNumericField(field) ? 1 : 0.5
+                }}
+                variant="outlined"
+              />
+            ))}
+            {databaseFields.length === 0 && (
+              <Typography color="text.secondary">
+                {loading ? 'Loading fields...' : 'Select a connection to view available fields'}
+              </Typography>
+            )}
+          </Paper>
+        </Box>
+      </Grid>
+      
+      {/* Generated SQL query section */}
+      {dimensions.length > 0 && measures.length > 0 && (
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom>
+                  Generated SQL Query
+                </Typography>
+                <Paper 
+                  variant="outlined" 
+                  sx={{ 
+                    p: 2,
+                    backgroundColor: '#f5f5f5',
+                    fontFamily: 'monospace',
+                    overflow: 'auto',
+                    maxHeight: 300
+                  }}
+                >
+                  <pre style={{ margin: 0 }}>
+                    {generateSqlQuery()}
+                  </pre>
+                </Paper>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  Note: This is a preview of the SQL query that will be generated. Actual JOIN conditions will be determined based on foreign key relationships.
+                </Typography>
+              </Grid>
+            )}
+      </Grid>
+    </Grid>
+  )}
+</TabPanel>
         
         {/* Visualization Tab */}
         <TabPanel value={tabValue} index={2}>
@@ -937,19 +953,19 @@ const TileEditor: React.FC<TileEditorProps> = ({
           </Box>
         </TabPanel>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} color="inherit">
-          Cancel
-        </Button>
-        <LoadingButton
-          onClick={handleSave}
+      <DialogActions sx={{ px: 3, py: 2 }}>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
           variant="contained"
-          color="primary"
-          loading={saving}
-          disabled={!isValid() || saving}
+          onClick={handleSave}
+          disabled={saving || !name.trim() || (tileType !== 'text' && !connectionId)}
         >
-          Save
-        </LoadingButton>
+          {saving ? (
+            <CircularProgress size={24} />
+          ) : (
+            tile ? 'Update' : 'Create'
+          )}
+        </Button>
       </DialogActions>
     </Dialog>
   );

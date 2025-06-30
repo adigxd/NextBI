@@ -698,121 +698,220 @@ const TileEditor: React.FC<TileEditorProps> = ({
                               </Typography>
                             </ToggleButton>
                             <ToggleButton value="subheader">
-                              <SubtitlesIcon fontSize="small" />
-                              <Typography variant="body2" sx={{ ml: 1 }}>
-                                Subheader
-                              </Typography>
-                            </ToggleButton>
-                            <ToggleButton value="text">
-                              <TextFieldsIcon fontSize="small" />
-                              <Typography variant="body2" sx={{ ml: 1 }}>
-                                Text
-                              </Typography>
-                            </ToggleButton>
-                          </ToggleButtonGroup>
-                          
-                          <Box>
-                            <FormControlLabel
-                              control={
-                                <Switch
-                                  checked={row.isQuery}
-                                  onChange={() => handleToggleRowQueryMode(row.id)}
-                                  size="small"
-                                  disabled={!connectionId}
-                                />
-                              }
-                              label={row.isQuery ? "SQL Query" : "Direct Text"}
-                              labelPlacement="start"
-                            />
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleRemoveTextRow(row.id)}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Box>
-                        </Box>
-                      </Grid>
-                      
-                      {/* Content Input */}
-                      <Grid item xs={12}>
-                        {row.isQuery ? (
-                          <TextField
-                            label="SQL Query"
-                            multiline
-                            rows={4}
-                            placeholder="SELECT column FROM table WHERE condition"
-                            fullWidth
-                            variant="outlined"
-                            value={row.content}
-                            onChange={(e) => handleTextRowContentChange(row.id, e.target.value)}
-                            error={!connectionId}
-                            helperText={!connectionId ? "Select a connection to enable SQL queries" : ""}
-                            InputProps={{
-                              startAdornment: <CodeIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                            }}
+{/* General Tab */}
+<TabPanel value={tabValue} index={0}>
+<TextField
+autoFocus
+margin="dense"
+label="Tile Name"
+fullWidth
+variant="outlined"
+value={name}
+onChange={(e) => setName(e.target.value)}
+required
+error={!name.trim()}
+helperText={!name.trim() ? 'Name is required' : ''}
+sx={{ mb: 2 }}
+/>
+  
+<TextField
+margin="dense"
+label="Description"
+fullWidth
+multiline
+rows={3}
+variant="outlined"
+value={description}
+onChange={(e) => setDescription(e.target.value)}
+sx={{ mb: 2 }}
+/>
+  
+<Grid container spacing={2}>
+<Grid item xs={12}>
+<FormControl fullWidth>
+<InputLabel>Tile Type</InputLabel>
+<Select
+value={tileType}
+onChange={(e) => setTileType(e.target.value as 'chart' | 'table' | 'metric' | 'text')}
+label="Tile Type"
+>
+<MenuItem value="chart">Chart</MenuItem>
+<MenuItem value="table">Table</MenuItem>
+<MenuItem value="metric">Metric</MenuItem>
+<MenuItem value="text">Text</MenuItem>
+</Select>
+</FormControl>
+</Grid>
+                    <Box sx={{ mr: 1, display: 'flex', alignItems: 'center' }}>
+                      {getChartIcon(chartType)}
+                    </Box>
+                  }
+                >
+                  <MenuItem value="bar">Bar Chart</MenuItem>
+                  <MenuItem value="line">Line Chart</MenuItem>
+                  <MenuItem value="pie">Pie Chart</MenuItem>
+                  <MenuItem value="donut">Donut Chart</MenuItem>
+                </Select>
+                <FormHelperText>Select the type of visualization</FormHelperText>
+              </FormControl>
+            </Grid>
+          )}
+        </Grid>
+      </TabPanel>
+
+      {/* Data Tab */}
+      <TabPanel value={tabValue} index={1}>
+        {tileType === 'text' ? (
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6">Text Content</Typography>
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  size="small"
+                  onClick={handleAddTextRow}
+                >
+                  Add Row
+                </Button>
+              </Box>
+
+              {textRows.map((row) => (
+                <Paper
+                  key={row.id}
+                  variant="outlined"
+                  sx={{ p: 2, mb: 2 }}
+                >
+                  <Grid container spacing={2}>
+                    {/* Row Controls */}
+                    <Grid item xs={12}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                        <ToggleButtonGroup
+                          value={row.type}
+                          exclusive
+                          onChange={(_, newType) => newType && handleTextRowTypeChange(row.id, newType as 'header' | 'subheader' | 'text')}
+                          size="small"
+                        >
+                          <ToggleButton value="header">
+                            <TitleIcon fontSize="small" />
+                            <Typography variant="body2" sx={{ ml: 1 }}>
+                              Header
+                            </Typography>
+                          </ToggleButton>
+                          <ToggleButton value="subheader">
+                            <SubtitlesIcon fontSize="small" />
+                            <Typography variant="body2" sx={{ ml: 1 }}>
+                              Subheader
+                            </Typography>
+                          </ToggleButton>
+                          <ToggleButton value="text">
+                            <TextFieldsIcon fontSize="small" />
+                            <Typography variant="body2" sx={{ ml: 1 }}>
+                              Text
+                            </Typography>
+                          </ToggleButton>
+                        </ToggleButtonGroup>
+
+                        <Box>
+                          <FormControlLabel
+                            control={
+                              <Switch
+                                checked={row.isQuery}
+                                onChange={() => handleToggleRowQueryMode(row.id)}
+                                size="small"
+                                disabled={!connectionId}
+                              />
+                            }
+                            label={row.isQuery ? "SQL Query" : "Direct Text"}
+                            labelPlacement="start"
                           />
-                        ) : (
-                          <TextField
-                            label={row.type.charAt(0).toUpperCase() + row.type.slice(1) + " Content"}
-                            multiline
-                            rows={row.type === 'header' ? 1 : row.type === 'subheader' ? 2 : 3}
-                            placeholder={`Enter ${row.type} content here`}
-                            fullWidth
-                            variant="outlined"
-                            value={row.content}
-                            onChange={(e) => handleTextRowContentChange(row.id, e.target.value)}
-                          />
-                        )}
-                      </Grid>
-                      
-                      {/* Preview of how the text will look */}
-                      {row.content && !row.isQuery && (
-                        <Grid item xs={12}>
-                          <Typography variant="caption" sx={{ color: 'text.secondary', mb: 1, display: 'block' }}>
-                            Preview:
-                          </Typography>
-                          {row.type === 'header' && (
-                            <Typography variant="h4">{row.content}</Typography>
-                          )}
-                          {row.type === 'subheader' && (
-                            <Typography variant="h5">{row.content}</Typography>
-                          )}
-                          {row.type === 'text' && (
-                            <Typography variant="body1">{row.content}</Typography>
-                          )}
-                        </Grid>
-                      )}
-                      
-                      {/* SQL Query result preview */}
-                      {row.isQuery && row.content && connectionId && (
-                        <Grid item xs={12}>
-                          <Button
-                            variant="outlined"
+                          <IconButton
                             size="small"
-                            startIcon={<StorageIcon />}
-                            onClick={() => {
-                              // Logic to execute the SQL query and show results
-                              console.log(`Execute query: ${row.content} on connection: ${connectionId}`);
-                            }}
+                            color="error"
+                            onClick={() => handleRemoveTextRow(row.id)}
                           >
-                            Test Query
-                          </Button>
-                        </Grid>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                    </Grid>
+
+                    {/* Content Input */}
+                    <Grid item xs={12}>
+                      {row.isQuery ? (
+                        <TextField
+                          label="SQL Query"
+                          multiline
+                          rows={4}
+                          placeholder="SELECT column FROM table WHERE condition"
+                          fullWidth
+                          variant="outlined"
+                          value={row.content}
+                          onChange={(e) => handleTextRowContentChange(row.id, e.target.value)}
+                          error={!connectionId}
+                          helperText={!connectionId ? "Select a connection to enable SQL queries" : ""}
+                          InputProps={{
+                            startAdornment: <CodeIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                          }}
+                        />
+                      ) : (
+                        <TextField
+                          label={row.type.charAt(0).toUpperCase() + row.type.slice(1) + " Content"}
+                          multiline
+                          rows={row.type === 'header' ? 1 : row.type === 'subheader' ? 2 : 3}
+                          placeholder={`Enter ${row.type} content here`}
+                          fullWidth
+                          variant="outlined"
+                          value={row.content}
+                          onChange={(e) => handleTextRowContentChange(row.id, e.target.value)}
+                        />
                       )}
                     </Grid>
-                  </Paper>
-                ))}
-                
-                {textRows.length === 0 && (
-                  <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <Typography color="text.secondary">
-                      No text rows added. Click "Add Row" to create content.
-                    </Typography>
-                  </Box>
-                )}
-              </Grid>
+
+                    {/* Preview of how the text will look */}
+                    {row.content && !row.isQuery && (
+                      <Grid item xs={12}>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', mb: 1, display: 'block' }}>
+                          Preview:
+                        </Typography>
+                        {row.type === 'header' && (
+                          <Typography variant="h4">{row.content}</Typography>
+                        )}
+                        {row.type === 'subheader' && (
+                          <Typography variant="h5">{row.content}</Typography>
+                        )}
+                        {row.type === 'text' && (
+                          <Typography variant="body1">{row.content}</Typography>
+                        )}
+                      </Grid>
+                    )}
+
+                    {/* SQL Query result preview */}
+                    {row.isQuery && row.content && connectionId && (
+                      <Grid item xs={12}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<StorageIcon />}
+                          onClick={() => {
+                            // Logic to execute the SQL query and show results
+                            console.log(`Execute query: ${row.content} on connection: ${connectionId}`);
+                          }}
+                        >
+                          Test Query
+                        </Button>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Paper>
+              ))}
+              {textRows.length === 0 && (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <Typography color="text.secondary">
+                    No text rows added. Click "Add Row" to create content.
+                  </Typography>
+                </Box>
+              )}
             </Grid>
           ) : (
             <Grid container spacing={3}>
@@ -925,9 +1024,9 @@ const TileEditor: React.FC<TileEditorProps> = ({
                 </Grid>
               )}
             </Grid>
-          )}
+          </Grid>
         </TabPanel>
-        
+
         {/* Visualization Tab */}
         <TabPanel value={tabValue} index={2}>
           <Box sx={{ p: 3 }}>
