@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, ReactElement } from 'react';
+import axios from 'axios';
 import { 
   Box, 
   Typography, 
@@ -32,37 +33,67 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import PieChartIcon from '@mui/icons-material/PieChart';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import TableChartIcon from '@mui/icons-material/TableChart';
+import SpeedIcon from '@mui/icons-material/Speed';
+import TextFieldsIcon from '@mui/icons-material/TextFields';
+import StorageIcon from '@mui/icons-material/Storage';
+
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   projectService, 
-  Tile as ServiceTile, 
-  CreateTileDto 
+  Tile as ServiceTile 
 } from '../services/projectService';
-import { dataModelService } from '../services/dataModelService';
+import { getAuthHeaders } from '../utils/authUtils';
 import TileEditor from '../components/TileEditor';
 import { hasProjectPermission } from '../services/userService';
 
+// Backend API URL
+const API_URL = 'http://localhost:3000';
+
 // Extended interface for UI display with additional properties
-interface Tile extends ServiceTile {
-  chartType: 'bar' | 'line' | 'pie' | 'donut';
+interface Tile extends Omit<ServiceTile, 'type'> {
+  chartType: 'bar' | 'line' | 'pie' | 'donut' | 'table';
+  type: 'chart' | 'table' | 'metric' | 'text' | 'query';
+  // The UI shows more specific types than the backend stores
 }
 
 // Extended DTO with additional properties needed for our implementation
-interface ExtendedCreateTileDto extends CreateTileDto {
-  dataModelId?: string;
+interface ExtendedCreateTileDto {
+  title: string;
+  description?: string;
+  // These are the UI types, which will be mapped to backend types on save
+  uiType: 'chart' | 'table' | 'metric' | 'text' | 'query';
+  // These are the backend-acceptable types
+  type: 'chart' | 'text' | 'kpi';
+  dashboardId: string;
+  connectionId?: string;
+  config?: TileConfig;
+  position?: { x: number; y: number; w: number; h: number };
   x?: number;
   y?: number;
   w?: number;
   h?: number;
 }
 
-interface DataModel {
-  id: string;
-  name: string;
+interface TileConfig {
+  chartType?: 'bar' | 'line' | 'pie' | 'donut' | 'table';
+  dimensions?: Array<{ field: string; alias?: string }>;
+  measures?: Array<{ field: string; alias?: string; aggregation?: string }>;
+  textRows?: Array<{ text: string }>;
+  connectionId?: string;
+  customQuery?: string;
+  isQueryMode?: boolean;
+  metadata?: {
+    sqlQuery?: string;
+    [key: string]: any;
+  };
+  sortBy?: {
+    field: string;
+    direction: 'asc' | 'desc';
+  };
 }
 
-const Tiles: React.FC = () => {
+const Tiles = (): ReactElement => {
   const navigate = useNavigate();
   const { projectId, folderId, dashboardId } = useParams<{ 
     projectId: string; 
@@ -74,20 +105,18 @@ const Tiles: React.FC = () => {
   const [folder, setFolder] = useState<{ id: string; name: string } | null>(null);
   const [dashboard, setDashboard] = useState<{ id: string; name: string } | null>(null);
   const [tiles, setTiles] = useState<Tile[]>([]);
-  const [dataModels, setDataModels] = useState<DataModel[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [hasEditPermission, setHasEditPermission] = useState<boolean>(false);
   
   // Auth context for permissions
   const { userData } = useAuth();
 
-  // States for permissions
-  // Using userData to determine edit permissions as needed
-  
   // Dialog states
   const [openDialog, setOpenDialog] = useState<boolean>(false);
   const [tileName, setTileName] = useState<string>('');
   const [tileDescription, setTileDescription] = useState<string>('');
-  const [selectedDataModelId, setSelectedDataModelId] = useState<string>('');
+  // This is the UI type selected in the dropdown
+const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'metric' | 'text' | 'query'>('chart');
   const [selectedChartType, setSelectedChartType] = useState<'bar' | 'line' | 'pie' | 'donut'>('bar');
   
   // Menu states
@@ -97,115 +126,205 @@ const Tiles: React.FC = () => {
   // Notification state
   const [notification, setNotification] = useState<{message: string; type: 'success' | 'error'} | null>(null);
   
-  // Tile editor state
-  const [openTileEditor, setOpenTileEditor] = useState<boolean>(false);
+  const [openTileEditor, setOpenTileEditor] = useState(false);
   const [editingTile, setEditingTile] = useState<Tile | undefined>(undefined);
 
-  // Function to fetch dashboard data
-  const fetchData = async () => {
-    if (!projectId || !folderId || !dashboardId) return;
-    
+  // Define menu handling functions first to avoid lint errors
+  const handleMenuClose = (): void => {
+    setAnchorEl(null);
+    setSelectedTile(null);
+  };
+
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, tile: Tile): void => {
+    setAnchorEl(event.currentTarget);
+    setSelectedTile(tile);
+  };
+
+  const handleEditTile = (): void => {
+    if (selectedTile) {
+      handleMenuClose();
+      setEditingTile(selectedTile);
+      setOpenTileEditor(true);
+    }
+  };
+
+  const handleDeleteTile = async (): Promise<void> => {
+    if (selectedTile) {
       try {
-        setLoading(true);
-        // Get project details
-        const projectData = await projectService.getProjectById(projectId);
-        setProject(projectData);
+        // Use the correct projectService method for deleting tiles
+        await projectService.deleteTile(selectedTile.id);
         
-        // Get folder details
-        const folderData = await projectService.getFoldersByProjectId(projectId);
-        const currentFolder = folderData.find(f => f.id === folderId) || { id: folderId, name: 'Unknown Folder' };
-        setFolder(currentFolder);
+        setTiles(tiles.filter(tile => tile.id !== selectedTile.id));
+        handleMenuClose();
         
-        // Get dashboard details
-        const dashboardData = await projectService.getDashboardById(dashboardId);
-        setDashboard(dashboardData);
-        
-        // Get tiles for this dashboard
-        const tileData = await projectService.getTilesByDashboardId(dashboardId);
-        
-        // Convert to UI format with chart type
-        const uiTiles = tileData.map(tile => {
-          // Convert 'table' chart type to 'donut' for compatibility
-          const chartType = tile.config?.chartType;
-          const convertedChartType = chartType === 'table' ? 'donut' : 
-                                   (chartType as 'bar' | 'line' | 'pie' | 'donut') || 'bar';
-          return {
-            ...tile,
-            chartType: convertedChartType
-          };
-        });
-        
-        setTiles(uiTiles);
-        
-        // Get all data models for the dropdown
-        const models = await dataModelService.getAllDataModels();
-        setDataModels(models);
-        
-        // Check user permissions for this project
-        // Permission check is done but we're not restricting UI yet
-        await hasProjectPermission(projectId, 'edit');
-        
-        setLoading(false);
-      } catch (error) {
-        console.error('Failed to fetch data:', error);
         setNotification({
-          message: `Error loading data: ${(error as Error).message}`,
+          message: 'Tile deleted successfully',
+          type: 'success'
+        });
+      } catch (error) {
+        console.error('Error deleting tile:', error);
+        setNotification({
+          message: `Failed to delete tile: ${(error as Error).message}`,
           type: 'error'
         });
-        setLoading(false);
       }
-    };
+    }
+  };
+
+  const fetchData = async (): Promise<void> => {
+    if (!projectId || !folderId || !dashboardId) return;
+    
+    try {
+      setLoading(true);
+      
+      // Use getProjectById instead of getProject
+      const projectData = await projectService.getProjectById(projectId);
+      setProject({ id: projectData.id, name: projectData.name });
+      
+      // Get folder data from the project's folders array
+      const folderData = projectData.folders?.find(f => f.id === folderId) || 
+        { id: folderId, name: 'Folder' };
+      setFolder({ id: folderData.id, name: folderData.name });
+      
+      // Use the correct method from projectService for fetching dashboard
+      const dashboardData = await projectService.getDashboardById(dashboardId);
+      setDashboard({ id: dashboardData.id, name: dashboardData.name });
+      
+      // Use the correct API endpoint for fetching tiles
+      // The projectService already has a method for this
+      const tilesData = await projectService.getTilesByDashboardId(dashboardId);
+      
+      setTiles(tilesData.map(tile => ({
+        ...tile,
+        chartType: (tile.config?.chartType || 'bar') as 'bar' | 'line' | 'pie' | 'donut',
+        type: tile.type as 'chart' | 'table' | 'metric' | 'text' | 'query'
+      })));
+      
+      if (userData?.id) {
+        const hasPermission = await hasProjectPermission(projectId, 'edit');
+        setHasEditPermission(hasPermission);
+      }
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setNotification({
+        message: `Failed to load data: ${(error as Error).message}`,
+        type: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Load data when component mounts or dependencies change
   useEffect(() => {
     fetchData();
   }, [projectId, folderId, dashboardId, userData?.id]);
 
-  const handleCreateTile = () => {
+  const handleCreateTile = (): void => {
     setOpenDialog(true);
   };
 
-  const handleCloseDialog = () => {
+  const handleCloseDialog = (): void => {
     setOpenDialog(false);
     setTileName('');
     setTileDescription('');
-    setSelectedDataModelId('');
+    setSelectedTileType('chart');
     setSelectedChartType('bar');
   };
 
-  const handleChartTypeChange = (event: SelectChangeEvent) => {
+  const handleTileTypeChange = (event: SelectChangeEvent): void => {
+    setSelectedTileType(event.target.value as 'chart' | 'table' | 'metric' | 'text' | 'query');
+  };
+
+  const handleChartTypeChange = (event: SelectChangeEvent): void => {
     setSelectedChartType(event.target.value as 'bar' | 'line' | 'pie' | 'donut');
   };
 
-  const handleSaveTile = async () => {
-    if (!dashboardId) return;
+  // These functions are now defined at the top of the component to avoid lint errors
+
+  const handleSaveTile = async (): Promise<void> => {
+    if (!dashboardId || !tileName.trim()) return;
     
     try {
+      // Map UI tile types to backend-acceptable types
+      let backendType: 'chart' | 'text' | 'kpi';
+      
+      // Map UI types to backend types
+      switch (selectedTileType) {
+        case 'chart':
+        case 'table':
+          backendType = 'chart';
+          break;
+        case 'text':
+        case 'query':
+          backendType = 'text';
+          break;
+        case 'metric':
+          backendType = 'kpi';
+          break;
+        default:
+          backendType = 'chart'; // Default fallback
+      }
+      
       const tileData: ExtendedCreateTileDto = {
-        title: tileName, // Use 'title' instead of 'name' to match backend expectations
+        title: tileName,
+        description: tileDescription.trim() || undefined,
         dashboardId,
-        dataModelId: selectedDataModelId,
-        type: 'chart',
-        chartType: selectedChartType, // Add chartType at the top level for backend validation
+        uiType: selectedTileType, // Store the UI type for frontend reference
+        type: backendType, // Use the mapped backend type
         position: { x: 0, y: 0, w: 6, h: 4 },
         x: 0,
         y: 0,
         w: 6,
         h: 4,
-        config: {
+        config: {}
+      };
+      
+      // Configure based on UI tile type
+      if (selectedTileType === 'chart') {
+        tileData.config = {
           chartType: selectedChartType,
           dimensions: [],
           measures: []
-        }
-      };
+        };
+      } else if (selectedTileType === 'table') {
+        // Table is a special chart type
+        tileData.config = {
+          chartType: 'table', // Custom chartType for table visualization
+          dimensions: [],
+          measures: []
+        };
+      } else if (selectedTileType === 'metric') {
+        tileData.config = {
+          measures: []
+        };
+      } else if (selectedTileType === 'text') {
+        tileData.config = {
+          textRows: [],
+          isQueryMode: false
+        };
+      } else if (selectedTileType === 'query') {
+        tileData.config = {
+          textRows: [],
+          isQueryMode: true,
+          customQuery: ''
+        };
+      }
       
-      // Create tile using the service
-      const newTile = await projectService.createTile(tileData);
+      console.log('Creating tile with data:', JSON.stringify(tileData, null, 2));
       
-      // Add to UI with chart type
+      // Use the correct projectService method for creating tiles
+      const newTile = await projectService.createTile(tileData as any);
+      
+      // Add to UI with chart type if applicable
       const uiTile: Tile = {
         ...newTile,
-        chartType: selectedChartType
+        chartType: (() => {
+          if (selectedTileType === 'chart') return selectedChartType;
+          if (selectedTileType === 'table') return 'table' as const;
+          return 'bar'; // Default for other types
+        })(),
+        type: selectedTileType
       };
       
       setTiles([...tiles, uiTile]);
@@ -224,65 +343,23 @@ const Tiles: React.FC = () => {
     }
   };
 
-  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, tile: Tile) => {
-    setAnchorEl(event.currentTarget);
-    setSelectedTile(tile);
-  };
-
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-    setSelectedTile(null);
-  };
-
-  const handleEditTile = () => {
-    if (!selectedTile) return;
-    
-    // Close the menu
-    handleMenuClose();
-    
-    // Open the tile editor with the selected tile
-    setEditingTile(selectedTile);
-    setOpenTileEditor(true);
-  };
-
-  const handleDeleteTile = async () => {
-    if (selectedTile) {
-      try {
-        // Delete tile using the service
-        await projectService.deleteTile(selectedTile.id);
-        
-        // Remove from UI
-        setTiles(tiles.filter(t => t.id !== selectedTile.id));
-        handleMenuClose();
-        
-        setNotification({
-          message: 'Tile deleted successfully',
-          type: 'success'
-        });
-      } catch (error) {
-        console.error('Error deleting tile:', error);
-        setNotification({
-          message: `Failed to delete tile: ${(error as Error).message}`,
-          type: 'error'
-        });
-      }
+  // Helper function to get the appropriate icon for a tile type
+  const getTileIcon = (type: string, chartType?: string): React.ReactNode => {
+    if (type === 'chart') {
+      if (chartType === 'bar') return <BarChartIcon />;
+      if (chartType === 'line') return <ShowChartIcon />;
+      if (chartType === 'pie' || chartType === 'donut') return <PieChartIcon />;
+      return <BarChartIcon />;
+    } else if (type === 'table') {
+      return <TableChartIcon />;
+    } else if (type === 'metric') {
+      return <SpeedIcon />;
+    } else if (type === 'text') {
+      return <TextFieldsIcon />;
+    } else if (type === 'query') {
+      return <StorageIcon />;
     }
-  };
-
-  // Helper function to get the appropriate icon for a chart type
-  const getChartIcon = (chartType: string) => {
-    switch (chartType) {
-      case 'bar':
-        return <BarChartIcon />;
-      case 'pie':
-        return <PieChartIcon />;
-      case 'line':
-        return <ShowChartIcon />;
-      case 'donut':
-        return <TableChartIcon />; // Reusing TableChartIcon for donut chart
-      default:
-        return <BarChartIcon />;
-    }
+    return <BarChartIcon />;
   };
 
   if (loading) {
@@ -300,7 +377,7 @@ const Tiles: React.FC = () => {
         open={notification !== null} 
         autoHideDuration={6000} 
         onClose={() => setNotification(null)}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert 
           onClose={() => setNotification(null)} 
@@ -342,6 +419,7 @@ const Tiles: React.FC = () => {
           color="primary"
           startIcon={<AddIcon />}
           onClick={handleCreateTile}
+          disabled={!hasEditPermission}
         >
           Create Tile
         </Button>
@@ -356,14 +434,16 @@ const Tiles: React.FC = () => {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Create a tile to visualize your data
           </Typography>
-          <Button
-            variant="outlined"
-            color="primary"
-            startIcon={<AddIcon />}
-            onClick={handleCreateTile}
-          >
-            Create Tile
-          </Button>
+          {hasEditPermission && (
+            <Button
+              variant="outlined"
+              color="primary"
+              startIcon={<AddIcon />}
+              onClick={handleCreateTile}
+            >
+              Create Tile
+            </Button>
+          )}
         </Box>
       ) : (
         <Grid container spacing={3}>
@@ -383,31 +463,34 @@ const Tiles: React.FC = () => {
               >
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    {getChartIcon(tile.chartType)}
-                    <Typography variant="h6" component="h2" noWrap>
-                      {tile.name}
+                    {getTileIcon(tile.type, tile.chartType)}
+                    <Typography variant="h6" component="h2" sx={{ ml: 1 }} noWrap>
+                      {tile.title}
                     </Typography>
                   </Box>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2 }} paragraph>
-                    {tile.name} visualization
+                    {tile.description || `${tile.title} visualization`}
                   </Typography>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 'auto' }}>
                     <Typography variant="caption" color="text.secondary">
-                      {tile.chartType.charAt(0).toUpperCase() + tile.chartType.slice(1)} Chart
+                      {tile.type.charAt(0).toUpperCase() + tile.type.slice(1)}
+                      {tile.type === 'chart' && ` (${tile.chartType})`}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {tile.updatedAt ? new Date(tile.updatedAt).toLocaleDateString() : 'N/A'}
                     </Typography>
                   </Box>
                 </CardContent>
-                <CardActions sx={{ justifyContent: 'flex-end', p: 1 }}>
-                  <IconButton 
-                    size="small"
-                    onClick={(e) => handleMenuOpen(e, tile)}
-                  >
-                    <MoreVertIcon />
-                  </IconButton>
-                </CardActions>
+                {hasEditPermission && (
+                  <CardActions sx={{ justifyContent: 'flex-end', p: 1 }}>
+                    <IconButton 
+                      size="small"
+                      onClick={(e) => handleMenuOpen(e, tile)}
+                    >
+                      <MoreVertIcon />
+                    </IconButton>
+                  </CardActions>
+                )}
               </Card>
             </Grid>
           ))}
@@ -462,38 +545,42 @@ const Tiles: React.FC = () => {
             sx={{ mb: 2 }}
           />
           
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel id="data-model-select-label">Data Model</InputLabel>
+          <FormControl fullWidth>
+            <InputLabel id="tile-type-select-label">Tile Type</InputLabel>
             <Select
-              labelId="data-model-select-label"
-              id="data-model-select"
-              value={selectedDataModelId}
-              label="Data Model"
-              onChange={(e) => setSelectedDataModelId(e.target.value)}
+              labelId="tile-type-select-label"
+              id="tile-type-select"
+              value={selectedTileType}
+              label="Tile Type"
+              onChange={handleTileTypeChange}
             >
-              {dataModels.map((model) => (
-                <MenuItem key={model.id} value={model.id}>{model.name}</MenuItem>
-              ))}
+              <MenuItem value="chart">Chart</MenuItem>
+              <MenuItem value="table">Table</MenuItem>
+              <MenuItem value="metric">Metric</MenuItem>
+              <MenuItem value="text">Text</MenuItem>
+              <MenuItem value="query">Database Query</MenuItem>
             </Select>
-            <FormHelperText>Select a data model for this visualization</FormHelperText>
+            <FormHelperText>Select the type of tile</FormHelperText>
           </FormControl>
           
-          <FormControl fullWidth>
-            <InputLabel id="chart-type-select-label">Chart Type</InputLabel>
-            <Select
-              labelId="chart-type-select-label"
-              id="chart-type-select"
-              value={selectedChartType}
-              label="Chart Type"
-              onChange={handleChartTypeChange}
-            >
-              <MenuItem value="bar">Bar Chart</MenuItem>
-              <MenuItem value="line">Line Chart</MenuItem>
-              <MenuItem value="pie">Pie Chart</MenuItem>
-              <MenuItem value="donut">Donut Chart</MenuItem>
-            </Select>
-            <FormHelperText>Select the type of visualization</FormHelperText>
-          </FormControl>
+          {selectedTileType === 'chart' && (
+            <FormControl fullWidth sx={{ mt: 2 }}>
+              <InputLabel id="chart-type-select-label">Chart Type</InputLabel>
+              <Select
+                labelId="chart-type-select-label"
+                id="chart-type-select"
+                value={selectedChartType}
+                label="Chart Type"
+                onChange={handleChartTypeChange}
+              >
+                <MenuItem value="bar">Bar Chart</MenuItem>
+                <MenuItem value="line">Line Chart</MenuItem>
+                <MenuItem value="pie">Pie Chart</MenuItem>
+                <MenuItem value="donut">Donut Chart</MenuItem>
+              </Select>
+              <FormHelperText>Select the type of chart visualization</FormHelperText>
+            </FormControl>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>
@@ -501,7 +588,7 @@ const Tiles: React.FC = () => {
             onClick={handleSaveTile} 
             variant="contained" 
             color="primary"
-            disabled={!tileName.trim() || !selectedDataModelId}
+            disabled={!tileName.trim()}
           >
             Create
           </Button>

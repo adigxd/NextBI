@@ -47,11 +47,12 @@ import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { getAuthHeaders } from '../utils/authUtils';
 
-// Define CreateTileDto interface
+// Define CreateTileDto interface to match the backend expected format
 interface CreateTileDto {
   title: string;
   description?: string;
-  type: 'chart' | 'table' | 'metric' | 'text';
+  // Backend only accepts these types
+  type: 'chart' | 'text' | 'kpi';
   dashboardId: string;
   connectionId?: string;
   config?: TileConfig;
@@ -105,11 +106,17 @@ interface TextRow {
 }
 
 interface TileConfig {
+  // Backend only supports these chart types
   chartType?: 'bar' | 'line' | 'pie' | 'donut';
   dimensions?: DimensionField[];
   measures?: MeasureField[];
   textRows?: TextRow[];
   connectionId?: string;
+  customQuery?: string;
+  isQueryMode?: boolean;
+  // Store the UI-specific tile type and chart type for front-end use
+  uiType?: 'chart' | 'table' | 'metric' | 'text' | 'query';
+  uiChartType?: 'bar' | 'line' | 'pie' | 'donut' | 'table';
   metadata?: {
     sqlQuery?: string;
     [key: string]: any;
@@ -132,10 +139,12 @@ interface DatabaseField {
 interface Tile {
   id: string;
   title: string;
-  type: 'chart' | 'table' | 'metric' | 'text';
+  // Backend types
+  type: 'chart' | 'text' | 'kpi';
   description?: string;
   connectionId?: string;
   config?: TileConfig;
+  // UI can have additional types stored in config
 }
 
 interface TileEditorProps {
@@ -159,9 +168,10 @@ const TileEditor: React.FC<TileEditorProps> = ({
   // Basic tile info
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [tileType, setTileType] = useState<'chart' | 'table' | 'metric' | 'text'>('chart');
+  // UI-specific tile type
+  const [tileType, setTileType] = useState<'chart' | 'table' | 'metric' | 'text' | 'query'>('chart');
   const [connectionId, setConnectionId] = useState('');
-  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie' | 'donut'>('bar');
+  const [chartType, setChartType] = useState<'bar' | 'line' | 'pie' | 'donut' | 'table'>('bar');
 
   // Text tile rows
   const [textRows, setTextRows] = useState<TextRow[]>([{
@@ -171,8 +181,13 @@ const TileEditor: React.FC<TileEditorProps> = ({
     isQuery: false
   }]);
 
+  // Query tile state
+  const [isQueryMode, setIsQueryMode] = useState(false);
+  const [customQuery, setCustomQuery] = useState('');
+
   // Connection and fields
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
+  // Track the selected connection object - needed for connection details
   const [selectedConnection, setSelectedConnection] = useState<DatabaseConnection | null>(null);
   const [databaseFields, setDatabaseFields] = useState<DatabaseField[]>([]);
   const [dimensions, setDimensions] = useState<DimensionField[]>([]);
@@ -185,6 +200,29 @@ const TileEditor: React.FC<TileEditorProps> = ({
   
   // Store mapping between field IDs and their source tables (needed for SQL generation)
   const [fieldTableMap, setFieldTableMap] = useState<Map<string, string>>(new Map());
+
+  // Validation function
+  const isValid = () => {
+    // Basic validation
+    if (!name.trim()) return false;
+    
+    // Type-specific validation
+    if (tileType === 'chart' || tileType === 'table') {
+      return connectionId && dimensions.length > 0 && measures.length > 0;
+    } else if (tileType === 'metric') {
+      return connectionId && measures.length > 0;
+    } else if (tileType === 'text') {
+      return textRows.length > 0 && textRows.some(row => row.content.trim());
+    } else if (tileType === 'query') {
+      if (isQueryMode) {
+        return connectionId && customQuery.trim().length > 0;
+      } else {
+        return textRows.length > 0 && textRows.some(row => row.content.trim());
+      }
+    }
+    
+    return false;
+  };
 
   // Load connections on mount
   useEffect(() => {
@@ -233,6 +271,10 @@ const TileEditor: React.FC<TileEditorProps> = ({
   useEffect(() => {
     if (connectionId) {
       loadConnectionSchema();
+    } else {
+      // Reset fields when no connection is selected
+      setDatabaseFields([]);
+      setFieldTableMap(new Map<string, string>());
     }
   }, [connectionId]);
 
@@ -242,61 +284,125 @@ const TileEditor: React.FC<TileEditorProps> = ({
     try {
       setLoading(true);
       setError('');
+      setDatabaseFields([]); // Clear previous fields
       
       const authHeaders = await getAuthHeaders();
-      const response = await axios.get(`/api/connections/${connectionId}/schema`, { headers: authHeaders });
+      // Make sure to use the correct API_URL with http://localhost:3000
+      const response = await axios.get(`http://localhost:3000/api/connections/${connectionId}/schema`, { headers: authHeaders });
       console.log('Schema response:', response.data);
+      
+      if (!response.data || response.data.error) {
+        throw new Error(response.data?.error || 'Failed to fetch schema data');
+      }
       
       // Extract fields from schema, handling different response formats
       let schemaData;
-      if (response.data.schema) {
-        schemaData = response.data.schema;
-      } else if (response.data.data) {
+      if (response.data.success && response.data.data) {
         schemaData = response.data.data;
+      } else if (response.data.schema) {
+        schemaData = response.data.schema;
       } else {
         schemaData = response.data;
       }
       
       // Convert schema to a flat list of database fields
       const fields: DatabaseField[] = [];
+      const fieldTableMapTemp = new Map<string, string>();
       
-      // Process schema based on its structure
-      if (Array.isArray(schemaData)) {
+      // Based on the network response format you shared
+      if (schemaData.schemas && schemaData.tables) {
+        // Handle the specific format from your API
+        const schemas = schemaData.schemas;
+        const tables = schemaData.tables;
+        
+        // For each schema, process tables in sequence to avoid race conditions
+        for (const schema of schemas) {
+          // Get tables for this schema
+          const schemaTables = tables[schema] || [];
+          
+          // For each table in this schema, process in sequence
+          for (const tableName of schemaTables) {
+            try {
+              // Fetch table columns - using the correct API endpoint with full URL
+              const columnsResponse = await axios.get(
+                `http://localhost:3000/api/connections/${connectionId}/schema/${schema}/${tableName}`, 
+                { headers: authHeaders }
+              );
+              
+              if (columnsResponse.data.success && columnsResponse.data.data) {
+                const columns = columnsResponse.data.data;
+                const tableFields: DatabaseField[] = [];
+                
+                // Add each column as a field
+                columns.forEach((column: any) => {
+                  const field: DatabaseField = {
+                    name: column.name || column.column_name,
+                    type: column.type || column.data_type,
+                    table: `${schema}.${tableName}`,
+                    description: column.description || ''
+                  };
+                  
+                  tableFields.push(field);
+                  // Store the mapping for SQL generation
+                  fieldTableMapTemp.set(field.name, field.table);
+                });
+                
+                // Update state with the new fields
+                fields.push(...tableFields);
+              }
+            } catch (err) {
+              console.error(`Error loading columns for ${schema}.${tableName}:`, err);
+              // Continue with other tables even if one fails
+            }
+          }
+        }
+        
+        // After processing all tables, update the state once
+        setDatabaseFields(fields);
+        setFieldTableMap(fieldTableMapTemp);
+      } else if (Array.isArray(schemaData)) {
         // Handle array of tables format
         schemaData.forEach((table: any) => {
           const tableName = table.name || table.table_name;
           if (table.columns) {
             table.columns.forEach((column: any) => {
-              fields.push({
+              const field: DatabaseField = {
                 name: column.name || column.column_name,
                 type: column.type || column.data_type,
                 table: tableName,
                 description: column.description || ''
-              });
+              };
+              fields.push(field);
+              fieldTableMapTemp.set(field.name, field.table);
             });
           }
         });
+        setDatabaseFields(fields);
+        setFieldTableMap(fieldTableMapTemp);
       } else if (typeof schemaData === 'object') {
         // Handle object format with tables as keys
         Object.keys(schemaData).forEach(tableName => {
           const columns = schemaData[tableName];
           if (Array.isArray(columns)) {
             columns.forEach(column => {
-              fields.push({
+              const field: DatabaseField = {
                 name: column.name || column.column_name,
                 type: column.type || column.data_type,
                 table: tableName,
                 description: column.description || ''
-              });
+              };
+              fields.push(field);
+              fieldTableMapTemp.set(field.name, field.table);
             });
           }
         });
+        setDatabaseFields(fields);
+        setFieldTableMap(fieldTableMapTemp);
       }
-      
-      setDatabaseFields(fields);
     } catch (err) {
       console.error('Error loading connection schema:', err);
-      setError('Failed to load database schema');
+      setError(`Failed to load database schema: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setDatabaseFields([]);
     } finally {
       setLoading(false);
     }
@@ -307,18 +413,28 @@ const TileEditor: React.FC<TileEditorProps> = ({
   };
 
   const handleChartTypeChange = (event: SelectChangeEvent) => {
-    setChartType(event.target.value as 'bar' | 'line' | 'pie' | 'donut');
+    setChartType(event.target.value as 'bar' | 'line' | 'pie' | 'donut' | 'table');
   };
 
   const handleConnectionChange = (event: SelectChangeEvent) => {
-    setConnectionId(event.target.value);
+    const connectionValue = event.target.value;
+    setConnectionId(connectionValue);
+    
     // Reset fields since the connection changed
     setDimensions([]);
     setMeasures([]);
     
-    // Find the selected connection
-    const connection = connections.find(c => c.id === event.target.value);
-    setSelectedConnection(connection || null);
+    // Find and set the selected connection object
+    if (connectionValue) {
+      const connection = connections.find(c => c.id === connectionValue);
+      if (connection) {
+        setSelectedConnection(connection);
+      } else {
+        setSelectedConnection(null);
+      }
+    } else {
+      setSelectedConnection(null);
+    }
   };
 
   const handleAddDimension = (field: DatabaseField) => {
@@ -391,22 +507,6 @@ const TileEditor: React.FC<TileEditorProps> = ({
     setTextRows([...textRows, newRow]);
   };
   
-  const handleTextChange = (index: number, value: string) => {
-    const updatedRows = [...textRows];
-    updatedRows[index].content = value;
-    setTextRows(updatedRows);
-  };
-  
-  const handleRemoveTextRow = (id: string) => {
-    setTextRows(textRows.filter(row => row.id !== id));
-  };
-  
-  const handleTextRowTypeChange = (id: string, type: 'header' | 'subheader' | 'text') => {
-    setTextRows(textRows.map(row => 
-      row.id === id ? { ...row, type } : row
-    ));
-  };
-  
   const handleTextRowContentChange = (id: string, content: string) => {
     setTextRows(textRows.map(row => 
       row.id === id ? { ...row, content } : row
@@ -418,79 +518,17 @@ const TileEditor: React.FC<TileEditorProps> = ({
       row.id === id ? { ...row, isQuery: !row.isQuery } : row
     ));
   };
-
-  const handleSave = async () => {
-    setError('');
-    setSaving(true);
-    
-    try {
-      // Generate final config object based on tile type
-      let config: TileConfig = {};
-      
-      switch (tileType) {
-        case 'chart':
-          config = {
-            chartType,
-            dimensions,
-            measures,
-            metadata: {
-              sqlQuery: generateSqlQuery()
-            }
-          };
-          break;
-        case 'table':
-          config = {
-            dimensions,
-            measures,
-            metadata: {
-              sqlQuery: generateSqlQuery()
-            }
-          };
-          break;
-        case 'metric':
-          if (measures.length === 0) {
-            setError('At least one measure is required for a metric tile');
-            setSaving(false);
-            return;
-          }
-          config = {
-            measure: measures[0],
-            metadata: {
-              sqlQuery: generateSqlQuery()
-            }
-          };
-          break;
-        case 'text':
-          config = { textRows };
-          break;
-      }
-      
-      // Create tile data object
-      const tileData: CreateTileDto = {
-        title: name,
-        description: description || undefined,
-        type: tileType,
-        dashboardId,
-        connectionId: connectionId || undefined,
-        config
-      };
-      
-      // Create or update tile
-      if (tile?.id) {
-        await projectService.updateTile(tile.id, tileData);
-      } else {
-        await projectService.createTile(tileData);
-      }
-      
-      onSave();
-    } catch (error) {
-      console.error('Failed to save tile:', error);
-      setError(`Failed to save tile: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setSaving(false);
-    }
+  
+  const handleRemoveTextRow = (id: string) => {
+    setTextRows(prev => prev.filter(row => row.id !== id));
   };
-
+  
+  const handleTextRowTypeChange = (id: string, type: 'header' | 'subheader' | 'text') => {
+    setTextRows(prev => prev.map(row =>
+      row.id === id ? { ...row, type } : row
+    ));
+  };
+  
   const generateSqlQuery = (): string => {
     if (dimensions.length === 0 || measures.length === 0) {
       return '';
@@ -510,7 +548,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
     measures.forEach(measure => {
       const table = fieldTableMap.get(measure.fieldId) || 'unknown_table';
       tables.add(table);
-      measureColumns.push(`${measure.aggregation}(${table}.${measure.fieldName}) as ${measure.alias}`);
+      measureColumns.push(`${measure.aggregation}(${table}.${measure.fieldName}) as ${measure.alias || measure.fieldName}`);
     });
     
     // Build SQL query
@@ -518,18 +556,154 @@ const TileEditor: React.FC<TileEditorProps> = ({
     const selectClause = [...dimensionColumns, ...measureColumns].join(', ');
     const fromClause = tablesList[0]; // Start with first table
     const groupByClause = dimensionColumns.length > 0 ? `GROUP BY ${dimensionColumns.join(', ')}` : '';
-
-    // Simple query for now - in a real app we would need to handle JOINs between tables
-    return `SELECT ${selectClause} FROM ${fromClause} ${tablesList.length > 1 ? '/* JOIN logic needed for multiple tables */' : ''} ${groupByClause}`;
+    
+    return `SELECT ${selectClause} \nFROM ${fromClause} \n${groupByClause}`;
   };
-  
-  // Helper to determine if a field is numeric
+
+  // Helper function to check if a field is numeric for measure selection
   const isNumericField = (field: DatabaseField): boolean => {
-    const numericTypes = ['number', 'integer', 'int', 'float', 'decimal', 'double', 'numeric'];
+    if (!field || !field.type) return false;
+    const numericTypes = ['int', 'integer', 'number', 'float', 'double', 'decimal', 'numeric', 'bigint', 'smallint', 'real'];
     return numericTypes.some(type => field.type.toLowerCase().includes(type));
   };
 
-  // Helper function to get chart icon based on chart type
+  // Save the tile with proper type mapping between UI and backend
+  const handleSave = async () => {
+    if (!isValid()) {
+      setError('Invalid tile configuration');
+      setSaving(false);
+      return;
+    }
+    setError('');
+    setSaving(true);
+    
+    try {
+      // Generate final config object based on tile type
+      let config: TileConfig = {};
+      
+      switch (tileType) {
+        case 'chart':
+          config = {
+            chartType, // Bar, line, pie, donut - already backend compatible
+            dimensions,
+            measures,
+            uiType: 'chart', // Store original UI type
+            metadata: {
+              sqlQuery: generateSqlQuery()
+            }
+          };
+          break;
+        case 'table':
+          // For table, we need to use a backend-compatible chartType
+          // but store 'table' as uiChartType
+          config = {
+            chartType: 'bar', // Use a supported backend chart type
+            uiChartType: 'table', // Store UI-specific chart type
+            dimensions,
+            measures,
+            uiType: 'table', // Store original UI type
+            metadata: {
+              sqlQuery: generateSqlQuery()
+            }
+          };
+          break;
+        case 'metric':
+          if (measures.length === 0) {
+            setError('At least one measure is required for a metric tile');
+            setSaving(false);
+            return;
+          }
+          config = {
+            measure: measures[0],
+            uiType: 'metric', // Store original UI type
+            metadata: {
+              sqlQuery: generateSqlQuery()
+            }
+          };
+          break;
+        case 'text':
+          config = { 
+            textRows,
+            uiType: 'text', // Store original UI type
+            isQueryMode: false
+          };
+          break;
+        case 'query':
+          if (isQueryMode) {
+            config = {
+              customQuery,
+              isQueryMode: true,
+              uiType: 'query', // Store original UI type
+              metadata: {
+                sqlQuery: customQuery
+              }
+            };
+          } else {
+            config = { 
+              textRows,
+              uiType: 'query', // Store original UI type
+              isQueryMode: false 
+            };
+          }
+          break;
+      }
+      
+      // Add connection ID to config if available
+      if (connectionId) {
+        config.connectionId = connectionId;
+      }
+      
+      // Map UI tile type to backend-accepted type
+      // Backend only accepts 'chart', 'text', 'kpi'
+      let backendType: 'chart' | 'text' | 'kpi';
+      switch (tileType) {
+        case 'chart':
+        case 'table':
+          backendType = 'chart';
+          break;
+        case 'metric':
+          backendType = 'kpi';
+          break;
+        case 'text':
+        case 'query':
+          backendType = 'text';
+          break;
+        default:
+          backendType = 'chart'; // Default fallback
+      }
+      
+      // Create tile data object with the mapped type
+      const tileData: CreateTileDto = {
+        title: name,
+        description: description || undefined,
+        type: backendType, // Use the mapped backend type
+        dashboardId,
+        connectionId: connectionId || undefined,
+        config
+      };
+      
+      console.log('Saving tile with data:', JSON.stringify(tileData, null, 2));
+      
+      // Create or update tile
+      if (tile?.id) {
+        // Update existing tile
+        await projectService.updateTile(tile.id, tileData);
+      } else {
+        // Create new tile
+        await projectService.createTile(tileData);
+      }
+      
+      onSave();
+      onClose();
+    } catch (err) {
+      console.error('Error saving tile:', err);
+      setError(`Failed to save tile: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Get the appropriate icon for chart type
   const getChartIcon = (type: string) => {
     switch (type) {
       case 'bar':
@@ -596,19 +770,20 @@ const TileEditor: React.FC<TileEditorProps> = ({
                 <InputLabel>Tile Type</InputLabel>
                 <Select
                   value={tileType}
-                  onChange={(e) => setTileType(e.target.value as 'chart' | 'table' | 'metric' | 'text')}
+                  onChange={(e) => setTileType(e.target.value as 'chart' | 'table' | 'metric' | 'text' | 'query')}
                   label="Tile Type"
                 >
                   <MenuItem value="chart">Chart</MenuItem>
                   <MenuItem value="table">Table</MenuItem>
                   <MenuItem value="metric">Metric</MenuItem>
                   <MenuItem value="text">Text</MenuItem>
+                  <MenuItem value="query">Free Text / Database Query</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
 
             <Grid item xs={12}>
-              <FormControl fullWidth required={tileType !== 'text'} error={!connectionId && error !== '' && tileType !== 'text'}>
+              <FormControl fullWidth required={tileType !== 'text' && tileType !== 'query'} error={!connectionId && error !== '' && tileType !== 'text' && tileType !== 'query'}>
                 <InputLabel>Database Connection</InputLabel>
                 <Select
                   value={connectionId}
@@ -660,7 +835,122 @@ const TileEditor: React.FC<TileEditorProps> = ({
         
         {/* Data Tab */}
         <TabPanel value={tabValue} index={1}>
-          {tileType === 'text' ? (
+          {tileType === 'query' ? (
+            <Grid container spacing={3}>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={isQueryMode}
+                      onChange={(e) => setIsQueryMode(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label="Database Query Mode"
+                />
+                <Typography variant="caption" color="textSecondary" display="block">
+                  {isQueryMode ? 'Write a custom SQL query' : 'Add formatted text content'}
+                </Typography>
+              </Grid>
+              
+              {isQueryMode ? (
+                <Grid item xs={12}>
+                  <FormControl fullWidth required={isQueryMode} error={isQueryMode && !customQuery.trim()}>
+                    <TextField
+                      label="SQL Query"
+                      multiline
+                      rows={8}
+                      value={customQuery}
+                      onChange={(e) => setCustomQuery(e.target.value)}
+                      variant="outlined"
+                      placeholder="SELECT * FROM table WHERE condition"
+                      InputProps={{
+                        sx: { fontFamily: 'monospace' }
+                      }}
+                    />
+                    {isQueryMode && !customQuery.trim() && (
+                      <FormHelperText>Please enter a SQL query</FormHelperText>
+                    )}
+                  </FormControl>
+                </Grid>
+              ) : (
+                <Grid item xs={12}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                    <Typography variant="h6">Text Content</Typography>
+                    <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      size="small"
+                      onClick={handleAddTextRow}
+                    >
+                      Add Row
+                    </Button>
+                  </Box>
+                  
+                  {textRows.map((row) => (
+                    <Paper
+                      key={row.id}
+                      variant="outlined"
+                      sx={{ p: 2, mb: 2 }}
+                    >
+                      <Grid container spacing={2}>
+                        {/* Row Controls */}
+                        <Grid item xs={12}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <ToggleButtonGroup
+                              value={row.type}
+                              exclusive
+                              onChange={(_, newType) => newType && handleTextRowTypeChange(row.id, newType as 'header' | 'subheader' | 'text')}
+                              size="small"
+                            >
+                              <ToggleButton value="header">
+                                <TitleIcon fontSize="small" />
+                                <Typography variant="body2" sx={{ ml: 1 }}>
+                                  Header
+                                </Typography>
+                              </ToggleButton>
+                              <ToggleButton value="subheader">
+                                <SubtitlesIcon fontSize="small" />
+                                <Typography variant="body2" sx={{ ml: 1 }}>
+                                  Subheader
+                                </Typography>
+                              </ToggleButton>
+                              <ToggleButton value="text">
+                                <TextFieldsIcon fontSize="small" />
+                                <Typography variant="body2" sx={{ ml: 1 }}>
+                                  Text
+                                </Typography>
+                              </ToggleButton>
+                            </ToggleButtonGroup>
+                            <IconButton
+                              size="small"
+                              onClick={() => handleRemoveTextRow(row.id)}
+                              disabled={textRows.length <= 1}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                        </Grid>
+                        
+                        {/* Content */}
+                        <Grid item xs={12}>
+                          <TextField
+                            fullWidth
+                            multiline
+                            rows={row.type === 'text' ? 4 : 1}
+                            placeholder={`Enter ${row.type} content...`}
+                            value={row.content}
+                            onChange={(e) => handleTextRowContentChange(row.id, e.target.value)}
+                            variant="outlined"
+                          />
+                        </Grid>
+                      </Grid>
+                    </Paper>
+                  ))}
+                </Grid>
+              )}
+            </Grid>
+          ) : tileType === 'text' ? (
             <Grid container spacing={3}>
               <Grid item xs={12}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
@@ -941,15 +1231,15 @@ const TileEditor: React.FC<TileEditorProps> = ({
         <Button onClick={onClose} color="inherit">
           Cancel
         </Button>
-        <LoadingButton
+        <Button
           onClick={handleSave}
           variant="contained"
           color="primary"
-          loading={saving}
           disabled={!isValid() || saving}
+          startIcon={saving ? <CircularProgress size={20} color="inherit" /> : null}
         >
-          Save
-        </LoadingButton>
+          {saving ? 'Saving...' : 'Save'}
+        </Button>
       </DialogActions>
     </Dialog>
   );

@@ -43,7 +43,7 @@ export interface Tile {
   dashboardId: string;
   dataModelId: string;
   name: string;
-  type: 'chart' | 'table' | 'metric' | 'text';
+  type: 'chart' | 'text' | 'kpi';
   config: any;
   position: {
     x: number;
@@ -77,7 +77,7 @@ export interface CreateTileDto {
   // Required fields according to backend validation
   title: string; // Backend expects 'title' not 'name'
   dashboardId: string;
-  type: 'chart' | 'table' | 'metric' | 'text';
+  type: 'chart' | 'text' | 'kpi';
   
   // Optional fields
   dataModelId?: string;
@@ -92,6 +92,9 @@ export interface CreateTileDto {
     chartType?: 'bar' | 'line' | 'pie' | 'donut';
     dimensions?: any[];
     measures?: any[];
+    textRows?: Array<{ text: string }>;
+    isQueryMode?: boolean;
+    customQuery?: string;
     [key: string]: any;
   };
   description?: string;

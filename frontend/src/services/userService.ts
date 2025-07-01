@@ -1,7 +1,9 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { getAuthHeaders } from '../utils/authUtils';
 
-const API_URL = 'http://localhost:3000/api';
+// Match the same API_URL structure as in projectService.ts
+const API_URL = 'http://localhost:3000';
+const PROJECT_URL = `${API_URL}/api/project`;
 
 export interface User {
   id: string;
@@ -38,7 +40,7 @@ export const searchUsers = async (query: string): Promise<User[]> => {
  */
 export const getCurrentUser = async (): Promise<User> => {
   const authHeaders = await getAuthHeaders();
-  const response = await axios.get(`${API_URL}/auth/me`, { headers: authHeaders });
+  const response = await axios.get(`${API_URL}/api/auth/me`, { headers: authHeaders });
   
   return response.data.data;
 };
@@ -48,10 +50,25 @@ export const getCurrentUser = async (): Promise<User> => {
  * @param projectId Project ID
  */
 export const getProjectUsers = async (projectId: string): Promise<ProjectUser[]> => {
-  const authHeaders = await getAuthHeaders();
-  const response = await axios.get(`${API_URL}/projects/${projectId}/users`, { headers: authHeaders });
-  
-  return response.data.data;
+  try {
+    console.log(`Getting users for project ${projectId}`);
+    console.log(`API URL: ${PROJECT_URL}/${projectId}/users`);
+    
+    const authHeaders = await getAuthHeaders();
+    console.log('Auth headers:', authHeaders);
+    
+    // Use the correct API endpoint structure
+    const response = await axios.get(`${PROJECT_URL}/${projectId}/users`, { headers: authHeaders });
+    
+    console.log('API Response:', response);
+    console.log('Project users data:', response.data);
+    
+    return response.data.data || [];
+  } catch (error) {
+    console.error('Error fetching project users:', error);
+    // Return empty array instead of throwing to prevent component errors
+    return [];
+  }
 };
 
 /**
@@ -60,15 +77,23 @@ export const getProjectUsers = async (projectId: string): Promise<ProjectUser[]>
  * @param userId User ID
  * @param role User role in the project
  */
+/**
+ * Add a user to a project
+ * @param projectId Project ID
+ * @param email User email
+ * @param role User role in the project
+ */
 export const addUserToProject = async (
   projectId: string, 
-  userId: string, 
+  email: string, 
   role: 'admin' | 'editor' | 'viewer'
 ): Promise<void> => {
   const authHeaders = await getAuthHeaders();
+  
+  // API requires email and role
   await axios.post(
-    `${API_URL}/projects/${projectId}/users`, 
-    { userId, role },
+    `${PROJECT_URL}/${projectId}/users`, 
+    { email, role },
     { headers: authHeaders }
   );
 };
@@ -84,7 +109,7 @@ export const removeUserFromProject = async (
 ): Promise<void> => {
   const authHeaders = await getAuthHeaders();
   await axios.delete(
-    `${API_URL}/projects/${projectId}/users/${userId}`, 
+    `${PROJECT_URL}/${projectId}/users/${userId}`, 
     { headers: authHeaders }
   );
 };
@@ -94,38 +119,122 @@ export const removeUserFromProject = async (
  * @param projectId Project ID
  * @param permission Permission to check
  */
+// Development mode flag - set to true to bypass permission checks during development
+const DEV_MODE = false;
+
+// Auto-add current user to project if they're not already in it
+const AUTO_ADD_USER = false;
+
 export const hasProjectPermission = async (
   projectId: string,
   permission: 'view' | 'edit' | 'manage'
 ): Promise<boolean> => {
+  // In development mode, always grant permissions
+  if (DEV_MODE) {
+    console.log(`DEV MODE: Automatically granting ${permission} permission for project ${projectId}`);
+    return true;
+  }
+  
   try {
-    const users = await getProjectUsers(projectId);
+    console.log(`Checking ${permission} permission for project ${projectId}`);
+    
+    // Get the current user first
     const currentUser = await getCurrentUser();
+    console.log('Current user:', currentUser);
+    console.log('Current user ID:', currentUser.id);
     
-    const userInProject = users.find(user => user.id === currentUser.id);
-    
-    if (!userInProject) {
-      return false;
+    // Check if the current user is the project creator by fetching project details
+    // This requires making an API call to get project details
+    try {
+      const authHeaders = await getAuthHeaders();
+      const projectResponse = await axios.get(`${PROJECT_URL}/${projectId}`, { headers: authHeaders });
+      const project = projectResponse.data.data;
+      
+      // If the current user is the project creator, grant all permissions
+      if (project && project.creatorId === currentUser.id) {
+        console.log('User is the project creator, granting all permissions');
+        return true;
+      }
+    } catch (projectError) {
+      console.error('Error checking project creator:', projectError);
+      // Continue with regular permission check if this fails
     }
     
-    // Admin can do anything
-    if (userInProject.role === 'admin' || userInProject.isCreator) {
-      return true;
+    // Get project users
+    const users = await getProjectUsers(projectId);
+    console.log('Project users:', users);
+    console.log('Project user IDs:', users.map(u => u.id));
+    
+    // Try to find user by ID with case-insensitive comparison
+    let userInProject = users.find(user => 
+      user.id && currentUser.id && 
+      user.id.toLowerCase() === currentUser.id.toLowerCase()
+    );
+    
+    // If not found by ID, try to find by email as a fallback
+    if (!userInProject && currentUser.email) {
+      userInProject = users.find(user => 
+        user.email && currentUser.email && 
+        user.email.toLowerCase() === currentUser.email.toLowerCase()
+      );
+      console.log('User found by email match:', userInProject);
     }
     
-    // Editor can view and edit but not manage
-    if (userInProject.role === 'editor') {
-      return permission === 'view' || permission === 'edit';
+    console.log('User in project:', userInProject);
+    
+    if (userInProject) {
+      // Admin can do anything
+      if (userInProject.role === 'admin' || userInProject.isCreator) {
+        console.log('User is admin or creator, granting permission');
+        return true;
+      }
+      
+      // Editor can view and edit but not manage
+      if (userInProject.role === 'editor') {
+        const hasPermission = permission === 'view' || permission === 'edit';
+        console.log(`User is editor, ${hasPermission ? 'granting' : 'denying'} ${permission} permission`);
+        return hasPermission;
+      }
+      
+      // Viewer can only view
+      if (userInProject.role === 'viewer') {
+        const hasPermission = permission === 'view';
+        console.log(`User is viewer, ${hasPermission ? 'granting' : 'denying'} ${permission} permission`);
+        return hasPermission;
+      }
+    } else {
+      console.log('User not found in project');
+      
+      // Only try to add the user if AUTO_ADD_USER is true and it's not the project creator
+      // We already checked if they're the creator above
+      if (AUTO_ADD_USER && currentUser && currentUser.email) {
+        try {
+          console.log(`Auto-adding user ${currentUser.email} to project ${projectId} as editor`);
+          await addUserToProject(projectId, currentUser.email, 'editor');
+          console.log('User successfully added to project');
+          
+          // For edit and view permissions, return true since we just added them as editor
+          if (permission === 'edit' || permission === 'view') {
+            return true;
+          }
+          // For manage permission, still return false as editors can't manage
+          return false;
+        } catch (error) {
+          console.error('Error auto-adding user to project:', error);
+          // Type check for Axios error to safely access response data
+          if (error instanceof AxiosError && error.response) {
+            console.error('Error response:', error.response.data);
+          }
+          return false;
+        }
+      }
     }
     
-    // Viewer can only view
-    if (userInProject.role === 'viewer') {
-      return permission === 'view';
-    }
-    
+    console.log('No matching role found, denying permission');
     return false;
   } catch (error) {
     console.error('Error checking project permission:', error);
-    return false;
+    // In case of error, grant permission in development mode
+    return DEV_MODE;
   }
 };
