@@ -472,18 +472,92 @@ const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'me
               >
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    {getTileIcon(tile.type, tile.chartType)}
+                    {getTileIcon(tile.config?.uiType || tile.type, tile.config?.uiChartType || tile.chartType)}
                     <Typography variant="h6" component="h2" sx={{ ml: 1 }} noWrap>
                       {tile.title}
                     </Typography>
                   </Box>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2 }} paragraph>
-                    {tile.description || `${tile.title} visualization`}
-                  </Typography>
+                  
+                  {/* Display tile content based on type */}
+                  <Box sx={{ minHeight: 100, mt: 1, mb: 2 }}>
+                    {/* Chart Tiles */}
+                    {(tile.type === 'chart' || tile.config?.uiType === 'chart') && (
+                      <Box sx={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                        {getTileIcon(tile.config?.uiType || tile.type, tile.config?.uiChartType || tile.chartType)}
+                        <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                          {tile.config?.dimensions?.length || 0} dimensions, {tile.config?.measures?.length || 0} measures
+                        </Typography>
+                      </Box>
+                    )}
+                    
+                    {/* Table Tiles */}
+                    {tile.config?.uiType === 'table' && (
+                      <Box sx={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                        <TableChartIcon />
+                        <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                          {tile.config?.dimensions?.length || 0} columns, {tile.config?.measures?.length || 0} metrics
+                        </Typography>
+                      </Box>
+                    )}
+                    
+                    {/* Metric Tiles */}
+                    {((typeof tile.type === 'string' && tile.type.includes('kpi')) || tile.config?.uiType === 'metric') && (
+                      <Box sx={{ height: 120, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                        <Typography variant="h3" sx={{ fontWeight: 'bold' }}>123</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {tile.config?.measure?.fieldName || 'Metric'}
+                        </Typography>
+                      </Box>
+                    )}
+                    
+                    {/* Text Tiles */}
+                    {(tile.type === 'text' || tile.config?.uiType === 'text' || tile.config?.uiType === 'query') && !tile.config?.isQueryMode && (
+                      <Box sx={{ height: 150, overflow: 'hidden', bgcolor: '#f5f5f5', borderRadius: 1, p: 2 }}>
+                        {tile.config?.textRows?.map((row: {type: string; content: string; id: string}, idx: number) => {
+                          switch (row.type) {
+                            case 'header': 
+                              return <Typography key={idx} variant="h6">{row.content}</Typography>;
+                            case 'subheader':
+                              return <Typography key={idx} variant="subtitle1">{row.content}</Typography>;
+                            default:
+                              return <Typography key={idx} variant="body2">{row.content}</Typography>;
+                          }
+                        })}
+                      </Box>
+                    )}
+                    
+                    {/* Query Tiles */}
+                    {tile.config?.uiType === 'query' && tile.config?.isQueryMode && (
+                      <Box sx={{ height: 150, overflow: 'hidden', bgcolor: '#f5f5f5', borderRadius: 1, p: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <StorageIcon fontSize="small" sx={{ mr: 0.5, color: 'primary.main' }} />
+                          <Typography variant="caption" color="primary">Database Query</Typography>
+                        </Box>
+                        <Typography variant="body2" component="pre" sx={{ 
+                          fontFamily: 'monospace', 
+                          fontSize: '0.75rem',
+                          whiteSpace: 'pre-wrap',
+                          overflow: 'hidden',
+                          maxHeight: 100
+                        }}>
+                          {(tile.config?.customQuery || '').substring(0, 150)}{(tile.config?.customQuery?.length || 0) > 150 ? '...' : ''}
+                        </Typography>
+                      </Box>
+                    )}
+                    
+                    {/* Fallback if no specific display is available */}
+                    {!tile.config?.uiType && !['chart', 'text', 'kpi'].includes(tile.type) && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2 }} paragraph>
+                        {tile.description || `${tile.title} visualization`}
+                      </Typography>
+                    )}
+                  </Box>
+                  
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 'auto' }}>
                     <Typography variant="caption" color="text.secondary">
-                      {tile.type.charAt(0).toUpperCase() + tile.type.slice(1)}
-                      {tile.type === 'chart' && ` (${tile.chartType})`}
+                      {(tile.config?.uiType || tile.type).charAt(0).toUpperCase() + (tile.config?.uiType || tile.type).slice(1)}
+                      {tile.type === 'chart' && tile.chartType && ` (${tile.chartType})`}
+                      {tile.config?.uiType === 'chart' && tile.config?.uiChartType && ` (${tile.config?.uiChartType})`}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {tile.updatedAt ? new Date(tile.updatedAt).toLocaleDateString() : 'N/A'}
