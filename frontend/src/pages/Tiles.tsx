@@ -79,7 +79,7 @@ interface TileConfig {
   chartType?: 'bar' | 'line' | 'pie' | 'donut' | 'table';
   dimensions?: Array<{ field: string; alias?: string }>;
   measures?: Array<{ field: string; alias?: string; aggregation?: string }>;
-  textRows?: Array<{ text: string }>;
+  textRows?: Array<{ id: string; type: string; content: string; isQuery: boolean }>;
   connectionId?: string;
   customQuery?: string;
   isQueryMode?: boolean;
@@ -91,6 +91,10 @@ interface TileConfig {
     field: string;
     direction: 'asc' | 'desc';
   };
+  // Store the UI-specific tile type and chart type for front-end use
+  uiType?: 'chart' | 'table' | 'metric' | 'text' | 'query';
+  uiChartType?: 'bar' | 'line' | 'pie' | 'donut' | 'table';
+  measure?: { field: string; alias?: string; aggregation?: string };
 }
 
 const Tiles = (): ReactElement => {
@@ -285,28 +289,33 @@ const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'me
         tileData.config = {
           chartType: selectedChartType,
           dimensions: [],
-          measures: []
+          measures: [],
+          uiType: 'chart' // Explicitly store UI type in config
         };
       } else if (selectedTileType === 'table') {
         // Table is a special chart type
         tileData.config = {
           chartType: 'table', // Custom chartType for table visualization
           dimensions: [],
-          measures: []
+          measures: [],
+          uiType: 'table' // Explicitly store UI type in config
         };
       } else if (selectedTileType === 'metric') {
         tileData.config = {
-          measures: []
-        };
-      } else if (selectedTileType === 'text') {
-        tileData.config = {
-          textRows: [],
-          isQueryMode: false
+          measures: [],
+          uiType: 'metric' // Explicitly store UI type in config
         };
       } else if (selectedTileType === 'query') {
+        // This now covers both Free Text and Database Query modes
         tileData.config = {
-          textRows: [],
-          isQueryMode: true,
+          textRows: [{
+            id: '1',
+            type: 'paragraph',
+            content: '',
+            isQuery: false
+          }],
+          uiType: 'query', // Explicitly store UI type in config
+          isQueryMode: false, // Initially not in query mode, will be toggled in editor
           customQuery: ''
         };
       }
@@ -557,8 +566,7 @@ const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'me
               <MenuItem value="chart">Chart</MenuItem>
               <MenuItem value="table">Table</MenuItem>
               <MenuItem value="metric">Metric</MenuItem>
-              <MenuItem value="text">Text</MenuItem>
-              <MenuItem value="query">Database Query</MenuItem>
+              <MenuItem value="query">Free Text / Database Query</MenuItem>
             </Select>
             <FormHelperText>Select the type of tile</FormHelperText>
           </FormControl>
