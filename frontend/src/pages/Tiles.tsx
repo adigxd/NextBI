@@ -1,19 +1,10 @@
-import React, { useState, useEffect, ReactElement } from 'react';
-import axios from 'axios';
-import { 
-  Box, 
-  Typography, 
-  Button, 
-  Grid, 
-  Card, 
-  CardContent, 
-  CardActions, 
-  TextField, 
-  Dialog, 
-  DialogTitle, 
-  DialogContent, 
-  DialogActions,
-  CircularProgress,
+import React, { useState, useEffect } from 'react';
+import {
+  Typography,
+  Button,
+  Grid,
+  Card,
+  CardContent,
   IconButton,
   Menu,
   MenuItem,
@@ -21,210 +12,315 @@ import {
   Alert,
   Breadcrumbs,
   Link,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
   FormControl,
   InputLabel,
   Select,
   FormHelperText,
-  SelectChangeEvent
+  Box,
+  CircularProgress,
+  SelectChangeEvent,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Divider
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import PieChartIcon from '@mui/icons-material/PieChart';
-import ShowChartIcon from '@mui/icons-material/ShowChart';
 import TableChartIcon from '@mui/icons-material/TableChart';
-import SpeedIcon from '@mui/icons-material/Speed';
 import TextFieldsIcon from '@mui/icons-material/TextFields';
-import StorageIcon from '@mui/icons-material/Storage';
+import CodeIcon from '@mui/icons-material/Code';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { 
-  projectService, 
-  Tile as ServiceTile 
-} from '../services/projectService';
-import { getAuthHeaders } from '../utils/authUtils';
-import TileEditor from '../components/TileEditor';
-import { hasProjectPermission } from '../services/userService';
+import { projectService } from '../services/projectService';
 
-// Backend API URL
-const API_URL = 'http://localhost:3000';
-
-// Extended interface for UI display with additional properties
-interface Tile extends Omit<ServiceTile, 'type'> {
-  chartType: 'bar' | 'line' | 'pie' | 'donut' | 'table';
-  type: 'chart' | 'table' | 'metric' | 'text' | 'query';
-  // The UI shows more specific types than the backend stores
-}
-
-// Extended DTO with additional properties needed for our implementation
-interface ExtendedCreateTileDto {
-  title: string;
+// Define the ServiceTile interface to match backend response
+interface ServiceTile {
+  id: string;
+  name: string;
   description?: string;
-  // These are the UI types, which will be mapped to backend types on save
-  uiType: 'chart' | 'table' | 'metric' | 'text' | 'query';
-  // These are the backend-acceptable types
-  type: 'chart' | 'text' | 'kpi';
+  type: 'Table' | 'Text & Query'; // Updated to match frontend types
   dashboardId: string;
   connectionId?: string;
-  config?: TileConfig;
-  position?: { x: number; y: number; w: number; h: number };
-  x?: number;
-  y?: number;
-  w?: number;
-  h?: number;
+  dataModelId?: string;
+  position?: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  };
+  content?: any;
+  config?: any;
+  textRows?: TextRow[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-interface TileConfig {
-  chartType?: 'bar' | 'line' | 'pie' | 'donut' | 'table';
-  dimensions?: Array<{ field: string; alias?: string }>;
-  measures?: Array<{ field: string; alias?: string; aggregation?: string }>;
-  textRows?: Array<{ id: string; type: string; content: string; isQuery: boolean }>;
+import { databaseConnectionService, DatabaseConnection } from '../services/databaseConnectionService';
+
+import TileEditor, { TileData } from '../components/Tiles/TileEditor';
+import { hasProjectPermission } from '../services/userService';
+
+// Define the TextRow interface
+interface TextRow {
+  id?: string;
+  tileId?: string;
+  type: 'header' | 'subheader' | 'text';
+  content: string;
+  isQuery: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// Define the Tile interface for our frontend
+interface Tile {
+  id: string;
+  name: string;
+  description?: string;
+  type: 'Table' | 'Text & Query'; // Frontend types
+  dashboardId: string;
   connectionId?: string;
-  customQuery?: string;
-  isQueryMode?: boolean;
-  metadata?: {
-    sqlQuery?: string;
-    [key: string]: any;
+  position?: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
   };
-  sortBy?: {
-    field: string;
-    direction: 'asc' | 'desc';
-  };
-  // Store the UI-specific tile type and chart type for front-end use
-  uiType?: 'chart' | 'table' | 'metric' | 'text' | 'query';
-  uiChartType?: 'bar' | 'line' | 'pie' | 'donut' | 'table';
-  measure?: { field: string; alias?: string; aggregation?: string };
+  config?: any;
+  textRows?: TextRow[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-const Tiles = (): ReactElement => {
-  const navigate = useNavigate();
-  const { projectId, folderId, dashboardId } = useParams<{ 
-    projectId: string; 
-    folderId: string;
-    dashboardId: string;
-  }>();
+// Types are now the same on frontend and backend - no conversion needed
+
+// Convert backend tile data to frontend format
+function convertToTileData(tile: ServiceTile): TileData {
+  console.log('[DEBUG] convertToTileData - Raw tile data received:', JSON.stringify(tile, null, 2));
   
+  // Since the types are now the same, we don't need to convert anymore
+  const frontendType = tile.type;
+
+  // Find textRows from the tile data - could be in multiple places
+  let textRows = [];
+  if (frontendType === 'Text & Query') {
+    // Try to find textRows from the backend response
+    if (tile.textRows && Array.isArray(tile.textRows)) {
+      console.log('[DEBUG] Found textRows directly in tile.textRows:', tile.textRows);
+      textRows = tile.textRows.map(row => ({
+        id: row.id || '',
+        type: row.type || 'text',
+        content: row.content || '',
+        isQuery: !!row.isQuery
+      }));
+    } else if (tile.content?.textRows && Array.isArray(tile.content.textRows)) {
+      console.log('[DEBUG] Found textRows in tile.content.textRows:', tile.content.textRows);
+      textRows = tile.content.textRows;
+    } else if (tile.config?.textRows && Array.isArray(tile.config.textRows)) {
+      console.log('[DEBUG] Found textRows in tile.config.textRows:', tile.config.textRows);
+      textRows = tile.config.textRows;
+    } else {
+      console.log('[DEBUG] No textRows found in any expected location');
+    }
+  }
+
+  const result = {
+    id: tile.id,
+    title: tile.name || '',
+    type: frontendType,
+    content: {
+      textRows,
+      tableConfig: frontendType === 'Table' ? {
+        selectedTable: tile.config?.tableConfig?.selectedTable || '',
+        columns: tile.config?.tableConfig?.columns || []
+      } : undefined
+    },
+    dashboardId: tile.dashboardId,
+    connectionId: tile.connectionId || '', // Ensure connectionId is always a string
+    position: tile.position || { x: 0, y: 0, w: 6, h: 4 }
+  };
+  
+  console.log('[DEBUG] convertToTileData - Converted tile data:', JSON.stringify(result, null, 2));
+  return result;
+}
+
+export const Tiles: React.FC = () => {
+  const navigate = useNavigate();
+  const { projectId, folderId, dashboardId } = useParams<{ projectId: string; folderId: string; dashboardId: string }>();
+  const { userData } = useAuth();
+
+  // State for project data
   const [project, setProject] = useState<{ id: string; name: string } | null>(null);
   const [folder, setFolder] = useState<{ id: string; name: string } | null>(null);
   const [dashboard, setDashboard] = useState<{ id: string; name: string } | null>(null);
   const [tiles, setTiles] = useState<Tile[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [hasEditPermission, setHasEditPermission] = useState<boolean>(false);
-  
-  // Auth context for permissions
-  const { userData } = useAuth();
 
   // Dialog states
   const [openDialog, setOpenDialog] = useState<boolean>(false);
   const [tileName, setTileName] = useState<string>('');
   const [tileDescription, setTileDescription] = useState<string>('');
-  // This is the UI type selected in the dropdown
-const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'metric' | 'text' | 'query'>('chart');
-  const [selectedChartType, setSelectedChartType] = useState<'bar' | 'line' | 'pie' | 'donut'>('bar');
+  const [selectedTileType, setSelectedTileType] = useState<'Table' | 'Text & Query'>('Table');
+  const [availableConnections, setAvailableConnections] = useState<DatabaseConnection[]>([]);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
+
+  // Variables and functions below are no longer needed with inline visualization approach
+  // Keeping the commented code for reference if we need to revert
+  const [expandedTileId, setExpandedTileId] = useState<string | null>(null);
   
-  // Menu states
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [selectedTile, setSelectedTile] = useState<Tile | null>(null);
-  
-  // Notification state
-  const [notification, setNotification] = useState<{message: string; type: 'success' | 'error'} | null>(null);
-  
+  // Track which tile is being hovered for action buttons
+  const [hoveredTileId, setHoveredTileId] = useState<string | null>(null);
+
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
   const [openTileEditor, setOpenTileEditor] = useState(false);
-  const [editingTile, setEditingTile] = useState<Tile | undefined>(undefined);
+  const [editingTile, setEditingTile] = useState<TileData | null>(null);
 
-  // Define menu handling functions first to avoid lint errors
-  const handleMenuClose = (): void => {
-    setAnchorEl(null);
-    setSelectedTile(null);
+  // Toggle expanded state for a tile to show its visualization
+  const handleTileClick = (tile: Tile): void => {
+    // Toggle expanded state for the clicked tile
+    setExpandedTileId(expandedTileId === tile.id ? null : tile.id);
   };
 
-  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, tile: Tile): void => {
-    setAnchorEl(event.currentTarget);
-    setSelectedTile(tile);
+  const handleEditTile = (tile: Tile) => {
+    console.log('[DEBUG] handleEditTile - Original tile data:', JSON.stringify(tile, null, 2));
+    const convertedTile = convertToTileData(tile as unknown as ServiceTile);
+    console.log('[DEBUG] handleEditTile - Converted tile data for editor:', JSON.stringify(convertedTile, null, 2));
+    setEditingTile(convertedTile);
+    setOpenTileEditor(true);
   };
 
-  const handleEditTile = (): void => {
-    if (selectedTile) {
-      handleMenuClose();
-      setEditingTile(selectedTile);
-      setOpenTileEditor(true);
+  const handleDeleteTile = async (tile: Tile): Promise<void> => {
+    if (!window.confirm(`Are you sure you want to delete the tile "${tile.name || 'Untitled'}"?`)) {
+      return;
+    }
+
+    try {
+      await projectService.deleteTile(tile.id);
+
+      setTiles(prev => prev.filter(t => t.id !== tile.id));
+
+      setError(null);
+    } catch (error) {
+      console.error('Error deleting tile:', error);
+
+      setError(`Failed to delete tile: ${(error as Error).message}`);
     }
   };
 
-  const handleDeleteTile = async (): Promise<void> => {
-    if (selectedTile) {
-      try {
-        // Use the correct projectService method for deleting tiles
-        await projectService.deleteTile(selectedTile.id);
-        
-        setTiles(tiles.filter(tile => tile.id !== selectedTile.id));
-        handleMenuClose();
-        
-        setNotification({
-          message: 'Tile deleted successfully',
-          type: 'success'
-        });
-      } catch (error) {
-        console.error('Error deleting tile:', error);
-        setNotification({
-          message: `Failed to delete tile: ${(error as Error).message}`,
-          type: 'error'
-        });
-      }
+  // Helper function to render the appropriate icon for each tile type
+  const getTileIcon = (type: 'Table' | 'Text & Query'): React.ReactNode => {
+    switch (type) {
+      case 'Table':
+        return <TableChartIcon />;
+      case 'Text & Query':
+        return <TextFieldsIcon />;
+      default:
+        return <TableChartIcon />;
     }
   };
 
-  const fetchData = async (): Promise<void> => {
-    if (!projectId || !folderId || !dashboardId) return;
-    
+  const fetchData = async () => {
+    if (!projectId || !folderId || !dashboardId) {
+      setError('Missing required parameters');
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       
-      // Use getProjectById instead of getProject
-      const projectData = await projectService.getProjectById(projectId);
-      setProject({ id: projectData.id, name: projectData.name });
+      // Check if user has edit permission for this project
+      const hasPermission = await hasProjectPermission(projectId, 'edit');
+      setHasEditPermission(hasPermission);
       
-      // Get folder data from the project's folders array
-      const folderData = projectData.folders?.find(f => f.id === folderId) || 
-        { id: folderId, name: 'Folder' };
-      setFolder({ id: folderData.id, name: folderData.name });
+      // Get project details
+      const projectResponse = await projectService.getProject(projectId);
+      setProject(projectResponse);
       
-      // Use the correct method from projectService for fetching dashboard
-      const dashboardData = await projectService.getDashboardById(dashboardId);
-      setDashboard({ id: dashboardData.id, name: dashboardData.name });
+      // Get folder details
+      const folderResponse = await projectService.getFolder(folderId);
+      setFolder(folderResponse);
       
-      // Use the correct API endpoint for fetching tiles
-      // The projectService already has a method for this
-      const tilesData = await projectService.getTilesByDashboardId(dashboardId);
+      // Get dashboard details
+      const dashboardResponse = await projectService.getDashboard(dashboardId);
+      setDashboard(dashboardResponse);
       
-      setTiles(tilesData.map(tile => ({
-        ...tile,
-        chartType: (tile.config?.chartType || 'bar') as 'bar' | 'line' | 'pie' | 'donut',
-        type: tile.type as 'chart' | 'table' | 'metric' | 'text' | 'query'
-      })));
+      // Get tiles for this dashboard
+      const tilesResponse = await projectService.getTiles(dashboardId);
+      console.log('[DEBUG] fetchData - Raw tiles from API:', JSON.stringify(tilesResponse, null, 2));
       
-      if (userData?.id) {
-        const hasPermission = await hasProjectPermission(projectId, 'edit');
-        setHasEditPermission(hasPermission);
-      }
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      setNotification({
-        message: `Failed to load data: ${(error as Error).message}`,
-        type: 'error'
+      // Log each tile's textRows if they exist
+      tilesResponse.forEach((tile: any, index: number) => {
+        console.log(`[DEBUG] Tile ${index} (${tile.id}) - type: ${tile.type}`);
+        if (tile.textRows) {
+          console.log(`[DEBUG] Tile ${index} textRows:`, JSON.stringify(tile.textRows, null, 2));
+        }
+        if (tile.content?.textRows) {
+          console.log(`[DEBUG] Tile ${index} content.textRows:`, JSON.stringify(tile.content.textRows, null, 2));
+        }
+        if (tile.config?.textRows) {
+          console.log(`[DEBUG] Tile ${index} config.textRows:`, JSON.stringify(tile.config.textRows, null, 2));
+        }
       });
+      
+      setTiles(tilesResponse);
+      
+      // Load database connections
+      await loadDatabaseConnections();
+      
+      setLoading(false);
+      }));
+
+      setTiles(frontendTiles);
+
+      if (userData?.id) {
+        const editPermission = await hasProjectPermission(projectId, 'edit');
+        setHasEditPermission(editPermission);
+      }
+    } catch (err) {
+      console.error('Error fetching dashboard tiles:', err);
+      setError('Failed to load dashboard tiles');
     } finally {
       setLoading(false);
     }
   };
 
-  // Load data when component mounts or dependencies change
   useEffect(() => {
     fetchData();
   }, [projectId, folderId, dashboardId, userData?.id]);
 
-  const handleCreateTile = (): void => {
+  const loadDatabaseConnections = async () => {
+    if (!projectId) return;
+
+    try {
+      const connections = await databaseConnectionService.getConnectionsByProjectId(projectId);
+      setAvailableConnections(connections);
+    } catch (error) {
+      console.error('Error loading database connections:', error);
+      setError('Failed to load database connections');
+    }
+  };
+
+  const handleOpenDialog = async (): Promise<void> => {
+    try {
+      await loadDatabaseConnections();
+    } catch (error) {
+      console.error('Error fetching database connections:', error);
+      setError('Failed to load database connections');
+    }
+
     setOpenDialog(true);
   };
 
@@ -232,193 +328,120 @@ const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'me
     setOpenDialog(false);
     setTileName('');
     setTileDescription('');
-    setSelectedTileType('chart');
-    setSelectedChartType('bar');
+    setSelectedTileType('Table');
+    setSelectedConnectionId('');
   };
-
-  const handleTileTypeChange = (event: SelectChangeEvent): void => {
-    setSelectedTileType(event.target.value as 'chart' | 'table' | 'metric' | 'text' | 'query');
-  };
-
-  const handleChartTypeChange = (event: SelectChangeEvent): void => {
-    setSelectedChartType(event.target.value as 'bar' | 'line' | 'pie' | 'donut');
-  };
-
-  // These functions are now defined at the top of the component to avoid lint errors
 
   const handleSaveTile = async (): Promise<void> => {
     if (!dashboardId || !tileName.trim()) return;
-    
+
     try {
-      // Map UI tile types to backend-acceptable types
-      let backendType: 'chart' | 'text' | 'kpi';
-      
-      // Map UI types to backend types
-      switch (selectedTileType) {
-        case 'chart':
-        case 'table':
-          backendType = 'chart';
-          break;
-        case 'text':
-        case 'query':
-          backendType = 'text';
-          break;
-        case 'metric':
-          backendType = 'kpi';
-          break;
-        default:
-          backendType = 'chart'; // Default fallback
+      if (!selectedConnectionId) {
+        setError('Database connection is required for all tile types');
+        return;
       }
-      
-      const tileData: ExtendedCreateTileDto = {
-        title: tileName,
+
+      const tileData = {
+        title: tileName.trim(),
         description: tileDescription.trim() || undefined,
         dashboardId,
-        uiType: selectedTileType, // Store the UI type for frontend reference
-        type: backendType, // Use the mapped backend type
+        type: selectedTileType,
         position: { x: 0, y: 0, w: 6, h: 4 },
-        x: 0,
-        y: 0,
-        w: 6,
-        h: 4,
-        config: {}
+        connectionId: selectedConnectionId
       };
-      
-      // Configure based on UI tile type
-      if (selectedTileType === 'chart') {
+
+      if (selectedTileType === 'Table') {
         tileData.config = {
-          chartType: selectedChartType,
-          dimensions: [],
-          measures: [],
-          uiType: 'chart' // Explicitly store UI type in config
+          tableConfig: {
+            selectedTable: '',
+            columns: []
+          },
+          uiType: 'table'
         };
-      } else if (selectedTileType === 'table') {
-        // Table is a special chart type
-        tileData.config = {
-          chartType: 'table', // Custom chartType for table visualization
-          dimensions: [],
-          measures: [],
-          uiType: 'table' // Explicitly store UI type in config
-        };
-      } else if (selectedTileType === 'metric') {
-        tileData.config = {
-          measures: [],
-          uiType: 'metric' // Explicitly store UI type in config
-        };
-      } else if (selectedTileType === 'query') {
-        // This now covers both Free Text and Database Query modes
-        tileData.config = {
-          textRows: [{
-            id: '1',
-            type: 'paragraph',
-            content: '',
-            isQuery: false
-          }],
-          uiType: 'query', // Explicitly store UI type in config
-          isQueryMode: false, // Initially not in query mode, will be toggled in editor
-          customQuery: ''
-        };
+      } else if (selectedTileType === 'Text & Query') {
+        tileData.textRows = [];
       }
-      
-      console.log('Creating tile with data:', JSON.stringify(tileData, null, 2));
-      
-      // Use the correct projectService method for creating tiles
-      const newTile = await projectService.createTile(tileData as any);
-      
-      // Add to UI with chart type if applicable
-      const uiTile: Tile = {
-        ...newTile,
-        chartType: (() => {
-          if (selectedTileType === 'chart') return selectedChartType;
-          if (selectedTileType === 'table') return 'table' as const;
-          return 'bar'; // Default for other types
-        })(),
-        type: selectedTileType
-      };
-      
-      setTiles([...tiles, uiTile]);
-      handleCloseDialog();
-      
-      setNotification({
-        message: 'Tile created successfully',
-        type: 'success'
-      });
+
+      const response = await projectService.createTile(tileData);
+
+      if (response) {
+        const newTile: Tile = {
+          id: response.id,
+          name: response.title || '',
+          dashboardId: response.dashboardId,
+          type: response.type,
+          connectionId: response.connectionId,
+          position: response.position || { x: 0, y: 0, w: 6, h: 4 },
+          config: response.config,
+          textRows: response.textRows || [],
+          createdAt: response.createdAt,
+          updatedAt: response.updatedAt
+        };
+
+        setTiles(prevTiles => [...prevTiles, newTile]);
+        handleCloseDialog();
+        setError(null);
+      }
     } catch (error) {
       console.error('Error creating tile:', error);
-      setNotification({
-        message: `Failed to create tile: ${(error as Error).message}`,
-        type: 'error'
-      });
+      setError('Failed to create tile');
     }
-  };
-
-  // Helper function to get the appropriate icon for a tile type
-  const getTileIcon = (type: string, chartType?: string): React.ReactNode => {
-    if (type === 'chart') {
-      if (chartType === 'bar') return <BarChartIcon />;
-      if (chartType === 'line') return <ShowChartIcon />;
-      if (chartType === 'pie' || chartType === 'donut') return <PieChartIcon />;
-      return <BarChartIcon />;
-    } else if (type === 'table') {
-      return <TableChartIcon />;
-    } else if (type === 'metric') {
-      return <SpeedIcon />;
-    } else if (type === 'text') {
-      return <TextFieldsIcon />;
-    } else if (type === 'query') {
-      return <StorageIcon />;
-    }
-    return <BarChartIcon />;
   };
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
         <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box sx={{ p: 2 }}>
+        <Alert severity="error">{error}</Alert>
       </Box>
     );
   }
 
   return (
     <Box sx={{ p: 2 }}>
-      {/* Notification Snackbar */}
-      <Snackbar 
-        open={notification !== null} 
-        autoHideDuration={6000} 
+      <Snackbar
+        open={notification !== null}
+        autoHideDuration={6000}
         onClose={() => setNotification(null)}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
-        <Alert 
-          onClose={() => setNotification(null)} 
-          severity={notification?.type || 'info'} 
+        <Alert
+          onClose={() => setNotification(null)}
+          severity={notification?.type || 'info'}
           sx={{ width: '100%' }}
         >
           {notification?.message || ''}
         </Alert>
       </Snackbar>
-      
-      {/* Breadcrumbs Navigation */}
+
       <Breadcrumbs aria-label="breadcrumb" sx={{ mb: 2 }}>
         <Link color="inherit" href="/projects" onClick={(e) => { e.preventDefault(); navigate('/projects'); }}>
           Projects
         </Link>
-        <Link 
-          color="inherit" 
-          href={`/projects/${projectId}`} 
+        <Link
+          color="inherit"
+          href={`/projects/${projectId}`}
           onClick={(e) => { e.preventDefault(); navigate(`/projects/${projectId}`); }}
         >
           {project?.name || 'Project'}
         </Link>
-        <Link 
-          color="inherit" 
-          href={`/projects/${projectId}/folders/${folderId}`} 
+        <Link
+          color="inherit"
+          href={`/projects/${projectId}/folders/${folderId}`}
           onClick={(e) => { e.preventDefault(); navigate(`/projects/${projectId}/folders/${folderId}`); }}
         >
           {folder?.name || 'Folder'}
         </Link>
         <Typography color="text.primary">{dashboard?.name || 'Dashboard'}</Typography>
       </Breadcrumbs>
-      
+
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
         <Typography variant="h4" component="h1">
           Tiles
@@ -427,7 +450,7 @@ const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'me
           variant="contained"
           color="primary"
           startIcon={<AddIcon />}
-          onClick={handleCreateTile}
+          onClick={handleOpenDialog}
           disabled={!hasEditPermission}
         >
           Create Tile
@@ -436,7 +459,7 @@ const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'me
 
       {tiles.length === 0 ? (
         <Box sx={{ textAlign: 'center', mt: 4 }}>
-          <BarChartIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+          <TextFieldsIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
           <Typography variant="h6" color="text.secondary">
             No tiles yet
           </Typography>
@@ -444,163 +467,262 @@ const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'me
             Create a tile to visualize your data
           </Typography>
           {hasEditPermission && (
-            <Button
-              variant="outlined"
-              color="primary"
-              startIcon={<AddIcon />}
-              onClick={handleCreateTile}
-            >
-              Create Tile
-            </Button>
+            <Grid container sx={{ mt: 3, mb: 6 }}>
+              <Grid item xs={12} display="flex" justifyContent="space-between" alignItems="center">
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={handleOpenDialog}
+                >
+                  Add Tile
+                </Button>
+                
+                {/* No empty hidden elements needed */}
+              </Grid>
+            </Grid>
           )}
         </Box>
       ) : (
         <Grid container spacing={3}>
           {tiles.map((tile) => (
-            <Grid item xs={12} sm={6} md={4} key={tile.id}>
-              <Card 
-                sx={{ 
-                  height: '100%', 
-                  display: 'flex', 
+            <Grid item key={tile.id} xs={12} sm={6} md={expandedTileId === tile.id ? 12 : 4}>
+              <Card
+                elevation={expandedTileId === tile.id ? 3 : 1}
+                sx={{
+                  height: '100%',
+                  cursor: 'pointer',
+                  display: 'flex',
                   flexDirection: 'column',
-                  transition: 'transform 0.2s, box-shadow 0.2s',
-                  '&:hover': {
-                    transform: 'translateY(-4px)',
-                    boxShadow: 6,
-                  },
+                  transition: 'all 0.3s ease',
+                  position: 'relative',
+                  border: expandedTileId === tile.id ? '1px solid' : 'none',
+                  borderColor: 'primary.light'
                 }}
+                onClick={() => handleTileClick(tile)}
+                onMouseEnter={() => setHoveredTileId(tile.id)}
+                onMouseLeave={() => setHoveredTileId(null)}
               >
-                <CardContent sx={{ flexGrow: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    {getTileIcon(tile.config?.uiType || tile.type, tile.config?.uiChartType || tile.chartType)}
-                    <Typography variant="h6" component="h2" sx={{ ml: 1 }} noWrap>
-                      {tile.title}
-                    </Typography>
-                  </Box>
-                  
-                  {/* Display tile content based on type */}
-                  <Box sx={{ minHeight: 100, mt: 1, mb: 2 }}>
-                    {/* Chart Tiles */}
-                    {(tile.type === 'chart' || tile.config?.uiType === 'chart') && (
-                      <Box sx={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5', borderRadius: 1 }}>
-                        {getTileIcon(tile.config?.uiType || tile.type, tile.config?.uiChartType || tile.chartType)}
-                        <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                          {tile.config?.dimensions?.length || 0} dimensions, {tile.config?.measures?.length || 0} measures
-                        </Typography>
-                      </Box>
-                    )}
-                    
-                    {/* Table Tiles */}
-                    {tile.config?.uiType === 'table' && (
-                      <Box sx={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5', borderRadius: 1 }}>
-                        <TableChartIcon />
-                        <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                          {tile.config?.dimensions?.length || 0} columns, {tile.config?.measures?.length || 0} metrics
-                        </Typography>
-                      </Box>
-                    )}
-                    
-                    {/* Metric Tiles */}
-                    {((typeof tile.type === 'string' && tile.type.includes('kpi')) || tile.config?.uiType === 'metric') && (
-                      <Box sx={{ height: 120, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5', borderRadius: 1 }}>
-                        <Typography variant="h3" sx={{ fontWeight: 'bold' }}>123</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {tile.config?.measure?.fieldName || 'Metric'}
-                        </Typography>
-                      </Box>
-                    )}
-                    
-                    {/* Text Tiles */}
-                    {(tile.type === 'text' || tile.config?.uiType === 'text' || tile.config?.uiType === 'query') && !tile.config?.isQueryMode && (
-                      <Box sx={{ height: 150, overflow: 'hidden', bgcolor: '#f5f5f5', borderRadius: 1, p: 2 }}>
-                        {tile.config?.textRows?.map((row: {type: string; content: string; id: string}, idx: number) => {
-                          switch (row.type) {
-                            case 'header': 
-                              return <Typography key={idx} variant="h6">{row.content}</Typography>;
-                            case 'subheader':
-                              return <Typography key={idx} variant="subtitle1">{row.content}</Typography>;
-                            default:
-                              return <Typography key={idx} variant="body2">{row.content}</Typography>;
-                          }
-                        })}
-                      </Box>
-                    )}
-                    
-                    {/* Query Tiles */}
-                    {tile.config?.uiType === 'query' && tile.config?.isQueryMode && (
-                      <Box sx={{ height: 150, overflow: 'hidden', bgcolor: '#f5f5f5', borderRadius: 1, p: 2 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                          <StorageIcon fontSize="small" sx={{ mr: 0.5, color: 'primary.main' }} />
-                          <Typography variant="caption" color="primary">Database Query</Typography>
-                        </Box>
-                        <Typography variant="body2" component="pre" sx={{ 
-                          fontFamily: 'monospace', 
-                          fontSize: '0.75rem',
-                          whiteSpace: 'pre-wrap',
-                          overflow: 'hidden',
-                          maxHeight: 100
-                        }}>
-                          {(tile.config?.customQuery || '').substring(0, 150)}{(tile.config?.customQuery?.length || 0) > 150 ? '...' : ''}
-                        </Typography>
-                      </Box>
-                    )}
-                    
-                    {/* Fallback if no specific display is available */}
-                    {!tile.config?.uiType && !['chart', 'text', 'kpi'].includes(tile.type) && (
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2 }} paragraph>
-                        {tile.description || `${tile.title} visualization`}
-                      </Typography>
-                    )}
-                  </Box>
-                  
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 'auto' }}>
-                    <Typography variant="caption" color="text.secondary">
-                      {(tile.config?.uiType || tile.type).charAt(0).toUpperCase() + (tile.config?.uiType || tile.type).slice(1)}
-                      {tile.type === 'chart' && tile.chartType && ` (${tile.chartType})`}
-                      {tile.config?.uiType === 'chart' && tile.config?.uiChartType && ` (${tile.config?.uiChartType})`}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {tile.updatedAt ? new Date(tile.updatedAt).toLocaleDateString() : 'N/A'}
-                    </Typography>
-                  </Box>
-                </CardContent>
-                {hasEditPermission && (
-                  <CardActions sx={{ justifyContent: 'flex-end', p: 1 }}>
-                    <IconButton 
-                      size="small"
-                      onClick={(e) => handleMenuOpen(e, tile)}
+                <CardContent sx={{ flexGrow: 1, p: 2 }}>
+                  {/* Action buttons that appear on hover */}
+                  {hoveredTileId === tile.id && hasEditPermission && (
+                    <Box 
+                      sx={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        display: 'flex',
+                        gap: 1,
+                        zIndex: 2
+                      }}
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <MoreVertIcon />
-                    </IconButton>
-                  </CardActions>
-                )}
+                      <IconButton 
+                        size="small" 
+                        color="primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditTile(tile);
+                        }}
+                      >
+                        <TextFieldsIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton 
+                        size="small" 
+                        color="error"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTile(tile);
+                        }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  )}
+                  {/* Tile Header */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <Box sx={{ mr: 2 }}>
+                      {/* This ensures getTileIcon is actually used */}
+                      {getTileIcon(tile.type)}
+                    </Box>
+                    <Box sx={{ flexGrow: 1 }}>
+                      <Typography variant="h6" component="h3" noWrap title={tile.name}>
+                        {tile.name || 'Untitled Tile'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" noWrap>
+                        {tile.description || ''}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Divider between header and content */}
+                  {expandedTileId === tile.id && <Divider sx={{ my: 1 }} />}
+                  
+                  {/* Tile Content - shown when expanded */}
+                  {expandedTileId === tile.id && (
+                    <Box sx={{ mt: 2 }}>
+                      {/* Text & Query Tile Content */}
+                      {tile.type === 'Text & Query' && tile.config?.textRows && (
+                        <Box>
+                          {tile.config.textRows.map((row: any, idx: number) => (
+                            <Box key={row.id || idx} sx={{ mb: 2 }}>
+                              {!row.isQuery ? (
+                                <>
+                                  {row.type === 'header' && (
+                                    <Typography variant="h4">{row.content || 'Header Text'}</Typography>
+                                  )}
+                                  {row.type === 'subheader' && (
+                                    <Typography variant="h5">{row.content || 'Subheader Text'}</Typography>
+                                  )}
+                                  {row.type === 'text' && (
+                                    <Typography variant="body1">{row.content || 'Regular Text'}</Typography>
+                                  )}
+                                </>
+                              ) : (
+                                <Box sx={{ p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                                    <CodeIcon fontSize="small" color="primary" sx={{ mr: 1 }} />
+                                    <Typography variant="subtitle2" color="primary">Query Result</Typography>
+                                  </Box>
+                                  <Typography variant="body2" component="pre" 
+                                    sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', p: 1, bgcolor: 'background.paper', borderRadius: 1 }}>
+                                    {row.content ? row.content : 'No query defined'}
+                                  </Typography>
+                                </Box>
+                              )}
+                            </Box>
+                          ))}
+                        </Box>
+                      )}
+                      
+                      {/* Table Tile Content */}
+                      {tile.type === 'Table' && tile.config?.tableConfig && (
+                        <Box>
+                          {tile.config.tableConfig.selectedTable && tile.config.tableConfig.columns && 
+                           tile.config.tableConfig.columns.length > 0 ? (
+                            <Box>
+                              <TableContainer component={Paper} variant="outlined">
+                                <Table size="small">
+                                  <TableHead>
+                                    <TableRow>
+                                      {tile.config.tableConfig.columns.map((column: string) => (
+                                        <TableCell key={column}>{column}</TableCell>
+                                      ))}
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    <TableRow>
+                                      <TableCell colSpan={tile.config.tableConfig.columns.length} align="center">
+                                        <Typography variant="body2" color="text.secondary">
+                                          Data would display here when connected to the database
+                                        </Typography>
+                                      </TableCell>
+                                    </TableRow>
+                                  </TableBody>
+                                </Table>
+                              </TableContainer>
+                              <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+                                Table: <b>{tile.config.tableConfig.selectedTable}</b>
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Typography color="text.secondary" align="center" sx={{ py: 3 }}>
+                              No table or columns configured
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
+                      
+                      {/* No configuration yet */}
+                      {!tile.config && (
+                        <Box sx={{ py: 3, textAlign: 'center' }}>
+                          <Typography color="text.secondary" align="center">
+                            This tile has no content configured
+                          </Typography>
+                          <Button 
+                            size="small" 
+                            sx={{ mt: 1 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditTile(tile);
+                            }}
+                          >
+                            Configure Tile
+                          </Button>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+                  
+                  {/* Preview content when not expanded */}
+                  {!expandedTileId || expandedTileId !== tile.id ? (
+                    <Box sx={{ mt: 2, opacity: 0.7 }}>
+                      {tile.type === 'Table' && tile.config?.tableConfig && (
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <TableChartIcon color="action" sx={{ mr: 1 }} />
+                          <Typography variant="body2" color="text.secondary" noWrap>
+                            {tile.config.tableConfig.selectedTable || 'Table view'}
+                          </Typography>
+                        </Box>
+                      )}
+                      {tile.type === 'Text & Query' && tile.config?.textRows?.length > 0 && (
+                        <Typography 
+                          variant="body2" 
+                          color="text.secondary"
+                          sx={{ 
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: '-webkit-box',
+                            maxHeight: '3em',
+                            // TypeScript-safe way to add vendor prefixes
+                            ...({
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical'
+                            } as React.CSSProperties)
+                          }}
+                        >
+                          {tile.config.textRows[0]?.content || 'Text content'}
+                        </Typography>
+                      )}
+                      {(!tile.config || 
+                        (tile.type === 'Text & Query' && (!tile.config.textRows || tile.config.textRows.length === 0)) ||
+                        (tile.type === 'Table' && !tile.config.tableConfig)) && (
+                        <Typography variant="body2" color="text.secondary">
+                          Click to view content
+                        </Typography>
+                      )}
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'none' }}></Box>
+                  )}
+                </CardContent>
+                
+                {/* Footer - always visible */}
+                <Box 
+                  sx={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    px: 2, 
+                    py: 1,
+                    borderTop: '1px solid',
+                    borderColor: 'divider',
+                    bgcolor: 'background.default'
+                  }}
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    {tile.connectionId ? 'Connected' : 'No connection'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {expandedTileId === tile.id ? 'Click to collapse' : 'Click to expand'}
+                  </Typography>
+                </Box>
               </Card>
             </Grid>
           ))}
         </Grid>
+
       )}
 
-      {/* Tile Menu */}
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={handleMenuClose}
-        anchorOrigin={{
-          vertical: 'bottom',
-          horizontal: 'right',
-        }}
-        transformOrigin={{
-          vertical: 'top',
-          horizontal: 'right',
-        }}
-      >
-        <MenuItem onClick={handleEditTile}>
-          Edit
-        </MenuItem>
-        <MenuItem onClick={handleDeleteTile} sx={{ color: 'error.main' }}>
-          Delete
-        </MenuItem>
-      </Menu>
+      {/* Menu component removed as we're now using inline visualization */}
 
       {/* Create Tile Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog} fullWidth maxWidth="sm">
@@ -628,41 +750,36 @@ const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'me
             sx={{ mb: 2 }}
           />
           
-          <FormControl fullWidth>
-            <InputLabel id="tile-type-select-label">Tile Type</InputLabel>
+          <FormControl fullWidth sx={{ mt: 2 }} error={!selectedTileType}>
+            <InputLabel id="tile-type-label">Tile Type</InputLabel>
             <Select
-              labelId="tile-type-select-label"
-              id="tile-type-select"
+              labelId="tile-type-label"
               value={selectedTileType}
               label="Tile Type"
-              onChange={handleTileTypeChange}
+              onChange={(e: SelectChangeEvent) => setSelectedTileType(e.target.value as 'Table' | 'Text & Query')}
             >
-              <MenuItem value="chart">Chart</MenuItem>
-              <MenuItem value="table">Table</MenuItem>
-              <MenuItem value="metric">Metric</MenuItem>
-              <MenuItem value="query">Free Text / Database Query</MenuItem>
+              <MenuItem value="Table">Table</MenuItem>
+              <MenuItem value="Text & Query">Text & Query</MenuItem>
             </Select>
-            <FormHelperText>Select the type of tile</FormHelperText>
+            {!selectedTileType && <FormHelperText>Required</FormHelperText>}
           </FormControl>
           
-          {selectedTileType === 'chart' && (
-            <FormControl fullWidth sx={{ mt: 2 }}>
-              <InputLabel id="chart-type-select-label">Chart Type</InputLabel>
+          {/* Database connection selection - required for all tile types */}
+            <FormControl fullWidth sx={{ mt: 2 }} error={!selectedConnectionId}>
+              <InputLabel id="connection-label">Database Connection</InputLabel>
               <Select
-                labelId="chart-type-select-label"
-                id="chart-type-select"
-                value={selectedChartType}
-                label="Chart Type"
-                onChange={handleChartTypeChange}
+                labelId="connection-label"
+                value={selectedConnectionId}
+                label="Database Connection"
+                onChange={(e: SelectChangeEvent) => setSelectedConnectionId(e.target.value)}
               >
-                <MenuItem value="bar">Bar Chart</MenuItem>
-                <MenuItem value="line">Line Chart</MenuItem>
-                <MenuItem value="pie">Pie Chart</MenuItem>
-                <MenuItem value="donut">Donut Chart</MenuItem>
+                {availableConnections.map(connection => (
+                  <MenuItem key={connection.id} value={connection.id}>{connection.name}</MenuItem>
+                ))}
               </Select>
-              <FormHelperText>Select the type of chart visualization</FormHelperText>
+              {!selectedConnectionId && <FormHelperText>Required</FormHelperText>}
             </FormControl>
-          )}
+
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>
@@ -678,13 +795,76 @@ const [selectedTileType, setSelectedTileType] = useState<'chart' | 'table' | 'me
       </Dialog>
       
       {/* Tile Editor */}
-      <TileEditor 
-        open={openTileEditor}
-        onClose={() => setOpenTileEditor(false)}
-        tile={editingTile}
-        dashboardId={dashboardId || ''}
-        onSave={fetchData}
-      />
+      {openTileEditor && editingTile && (
+        <TileEditor 
+          open={openTileEditor}
+          onClose={() => setOpenTileEditor(false)}
+          tile={editingTile} 
+          dashboardId={dashboardId || ''}
+          onSave={async (updatedTileData) => {
+            try {
+              console.log('[DEBUG] TileEditor onSave - Received tile data:', JSON.stringify(updatedTileData, null, 2));
+              
+              // Prepare update payload
+              const updatePayload: any = {
+                title: updatedTileData.title,
+                dashboardId: updatedTileData.dashboardId,
+                type: updatedTileData.type,
+                connectionId: updatedTileData.connectionId,
+                position: updatedTileData.position
+              };
+              
+              // Handle tile type-specific data
+              if (updatedTileData.type === 'Text & Query' && updatedTileData.content.textRows) {
+                console.log('[DEBUG] TileEditor onSave - Processing Text & Query tile with textRows:', 
+                  JSON.stringify(updatedTileData.content.textRows, null, 2));
+                
+                // For Text & Query tiles, extract textRows as a separate field
+                // The backend will create/update these in the text_rows table
+                updatePayload.textRows = updatedTileData.content.textRows.map(row => ({
+                  id: row.id, // Include ID if it exists for existing rows
+                  type: row.type || 'text',
+                  content: row.content, // Use 'content' which is what the TextRow model expects
+                  isQuery: row.isQuery || false
+                }));
+                
+                // Store textRows in content so it can be retrieved on the frontend
+                updatePayload.content = {
+                  textRows: updatedTileData.content.textRows
+                };
+                
+                // Also include in config for backward compatibility
+                updatePayload.config = {
+                  textRows: updatedTileData.content.textRows,
+                  uiType: 'text'
+                };
+                
+                console.log('[DEBUG] TileEditor onSave - Prepared textRows payload:', 
+                  JSON.stringify(updatePayload.textRows, null, 2));
+              } else if (updatedTileData.type === 'Table' && updatedTileData.content.tableConfig) {
+                // For Table tiles, keep using the config field
+                updatePayload.config = {
+                  tableConfig: updatedTileData.content.tableConfig,
+                  uiType: 'table'
+                };
+              }
+              
+              console.log('[DEBUG] TileEditor onSave - Final update payload:', JSON.stringify(updatePayload, null, 2));
+              
+              // Save the updated tile data to the backend
+              const updatedTile = await projectService.updateTile(updatedTileData.id, updatePayload);
+              console.log('[DEBUG] TileEditor onSave - Response from backend:', JSON.stringify(updatedTile, null, 2));
+              
+              // Refresh data to show the updated tiles
+              await fetchData();
+              setOpenTileEditor(false);
+            } catch (error) {
+              console.error('[ERROR] Error updating tile:', error);
+              setError('Failed to update tile');
+            }
+          }}
+        />
+      )}
     </Box>
   );
 };

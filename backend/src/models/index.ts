@@ -5,6 +5,7 @@ import ProjectUser from './ProjectUser';
 import Folder from './Folder';
 import Dashboard from './Dashboard';
 import Tile from './Tile';
+import TextRow from './TextRow';
 import DatabaseConnection from './DatabaseConnection';
 import DataModel from './DataModel';
 
@@ -17,6 +18,7 @@ const setupAssociations = (): void => {
     Folder,
     Dashboard,
     Tile,
+    TextRow,
     DatabaseConnection,
     DataModel
   };
@@ -41,6 +43,7 @@ export {
   Folder,
   Dashboard,
   Tile,
+  TextRow,
   DatabaseConnection,
   DataModel
 };
@@ -53,6 +56,7 @@ export default {
   Folder,
   Dashboard,
   Tile,
+  TextRow,
   DatabaseConnection,
   DataModel
 };

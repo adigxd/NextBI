@@ -38,12 +38,24 @@ export interface Dashboard {
   updatedAt?: string;
 }
 
+export interface TextRow {
+  id: string;
+  tileId: string;
+  type: 'header' | 'subheader' | 'text';
+  content: string;
+  isQuery: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Tile {
   id: string;
   dashboardId: string;
-  dataModelId: string;
+  dataModelId?: string;
   name: string;
-  type: 'chart' | 'text' | 'kpi';
+  description?: string;
+  connectionId?: string;
+  type: 'Table' | 'Text & Query'; // Updated to use frontend types
   config: any;
   position: {
     x: number;
@@ -51,6 +63,11 @@ export interface Tile {
     w: number;
     h: number;
   };
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  textRows?: TextRow[];
   createdAt: string;
   updatedAt?: string;
 }
@@ -77,7 +94,8 @@ export interface CreateTileDto {
   // Required fields according to backend validation
   title: string; // Backend expects 'title' not 'name'
   dashboardId: string;
-  type: 'chart' | 'text' | 'kpi';
+  type: 'Table' | 'Text & Query'; // Using frontend types as that's what the API validation expects
+  connectionId: string; // Add connectionId as required field
   
   // Optional fields
   dataModelId?: string;
@@ -97,6 +115,13 @@ export interface CreateTileDto {
     customQuery?: string;
     [key: string]: any;
   };
+  // Add textRows field to support the new TextRow model
+  textRows?: Array<{
+    type: 'header' | 'subheader' | 'text';
+    text?: string;
+    content?: string;
+    isQuery?: boolean;
+  }>;
   description?: string;
 }
 

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Tile, Dashboard, Folder, ProjectUser } from '../models';
+import { Tile, Dashboard, Folder, ProjectUser, TextRow, sequelize } from '../models';
 import { Op } from 'sequelize';
 import logger from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
@@ -49,11 +49,16 @@ export const getDashboardTiles = async (req: Request, res: Response): Promise<vo
       return;
     }
     
-    // Get tiles
+    // Get tiles with their text rows
     const tiles = await Tile.findAll({
       where: {
         dashboardId
-      }
+      },
+      include: [{
+        model: TextRow,
+        as: 'textRows',
+        required: false
+      }]
     });
     
     res.status(200).json({
@@ -79,38 +84,31 @@ export const createTile = async (req: Request, res: Response): Promise<void> => 
     const { 
       title, 
       type, 
-      chartType, 
       content, 
       position, 
       styling, 
-      dataModelId 
+      connectionId,
+      textRows 
     } = req.body;
     
-    if (!title || !type || !dashboardId) {
+    if (!title || !type || !dashboardId || !connectionId) {
       res.status(400).json({
         success: false,
-        message: 'Title, type, and dashboardId are required'
+        message: 'Title, type, dashboardId, and connectionId are required'
       });
       return;
     }
     
     // Validate tile type
-    if (!['chart', 'text', 'kpi'].includes(type)) {
+    if (!['Text & Query', 'Table'].includes(type)) {
       res.status(400).json({
         success: false,
-        message: 'Tile type must be chart, text, or kpi'
+        message: 'Tile type must be Text & Query or Table'
       });
       return;
     }
     
-    // Validate chart type if tile is a chart
-    if (type === 'chart' && (!chartType || !['bar', 'line', 'pie', 'donut'].includes(chartType))) {
-      res.status(400).json({
-        success: false,
-        message: 'Chart type must be bar, line, pie, or donut'
-      });
-      return;
-    }
+    // Tile type validation passed
     
     // Find dashboard
     const dashboard = await Dashboard.findByPk(dashboardId);
@@ -153,27 +151,59 @@ export const createTile = async (req: Request, res: Response): Promise<void> => 
       return;
     }
     
-    // Create tile
-    const tile = await Tile.create({
-      id: uuidv4(),
-      title,
-      type,
-      chartType: type === 'chart' ? chartType : null,
-      content: content || {},
-      position: position || { x: 0, y: 0, w: 6, h: 6 },
-      styling: styling || { 
-        backgroundColor: '#ffffff', 
-        textColor: '#333333',
-        chartColors: ['#40c0a0', '#2060e0', '#e04060']
-      },
-      dataModelId: dataModelId || null,
-      dashboardId
-    });
+    // Start a transaction
+    const t = await sequelize.transaction();
     
-    res.status(201).json({
-      success: true,
-      data: tile
-    });
+    try {
+      // Create tile
+      const tileId = uuidv4();
+      const tile = await Tile.create({
+        id: tileId,
+        title,
+        type,
+        connectionId,
+        content: content || {},
+        position: position || { x: 0, y: 0, w: 6, h: 6 },
+        styling: styling || { 
+          backgroundColor: '#ffffff', 
+          textColor: '#333333'
+        },
+        dashboardId
+      }, { transaction: t });
+      
+      // Create text rows if applicable
+      if (type === 'Text & Query' && Array.isArray(textRows)) {
+        for (const rowData of textRows) {
+          await TextRow.create({
+            id: uuidv4(),
+            tileId: tileId,
+            type: rowData.type || 'text',
+            content: rowData.text || rowData.content || '',
+            isQuery: rowData.isQuery || false
+          }, { transaction: t });
+        }
+      }
+      
+      // Commit transaction
+      await t.commit();
+      
+      // Fetch the created tile with its text rows
+      const createdTile = await Tile.findByPk(tileId, {
+        include: [{
+          model: TextRow,
+          as: 'textRows'
+        }]
+      });
+      
+      res.status(201).json({
+        success: true,
+        data: createdTile
+      });
+    } catch (error) {
+      // Rollback transaction
+      await t.rollback();
+      throw error;
+    }
     
   } catch (error) {
     logger.error('Create tile error:', error);
@@ -191,7 +221,13 @@ export const getTileById = async (req: Request, res: Response): Promise<void> =>
   try {
     const { tileId } = req.params;
     
-    const tile = await Tile.findByPk(tileId);
+    // Find tile with associated text rows
+    const tile = await Tile.findByPk(tileId, {
+      include: [{
+        model: TextRow,
+        as: 'textRows'
+      }]
+    });
     
     if (!tile) {
       res.status(404).json({
@@ -245,7 +281,7 @@ export const getTileById = async (req: Request, res: Response): Promise<void> =>
     });
     
   } catch (error) {
-    logger.error('Get tile error:', error);
+    logger.error('Get tile by ID error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to get tile'
@@ -261,10 +297,12 @@ export const updateTile = async (req: Request, res: Response): Promise<void> => 
     const { tileId } = req.params;
     const { 
       title, 
+      type, 
       content, 
       position, 
-      styling, 
-      dataModelId 
+      styling,
+      connectionId,
+      textRows 
     } = req.body;
     
     const tile = await Tile.findByPk(tileId);
@@ -318,20 +356,64 @@ export const updateTile = async (req: Request, res: Response): Promise<void> => 
       return;
     }
     
-    // Update tile
-    if (title !== undefined) tile.title = title;
-    if (content !== undefined) tile.content = content;
-    if (position !== undefined) tile.position = position;
-    if (styling !== undefined) tile.styling = styling;
-    if (dataModelId !== undefined) tile.dataModelId = dataModelId;
+    // Start a transaction to ensure all database operations succeed or fail together
+    const t = await sequelize.transaction();
     
-    // Save changes
-    await tile.save();
-    
-    res.status(200).json({
-      success: true,
-      data: tile
-    });
+    try {
+      // Update tile basic properties
+      if (title !== undefined) tile.title = title;
+      if (type !== undefined) tile.type = type;
+      if (content !== undefined) tile.content = content;
+      if (position !== undefined) tile.position = position;
+      if (styling !== undefined) tile.styling = styling;
+      if (connectionId !== undefined) tile.connectionId = connectionId;
+      
+      // Save changes to tile
+      await tile.save({ transaction: t });
+      
+      // Handle text rows for Text & Query tiles
+      if (tile.type === 'Text & Query' && textRows) {
+        // First, delete all existing text rows for this tile
+        await TextRow.destroy({
+          where: { tileId: tile.id },
+          transaction: t
+        });
+        
+        // Then create new text rows from the provided data
+        if (Array.isArray(textRows)) {
+          for (const rowData of textRows) {
+            await TextRow.create({
+              id: uuidv4(),
+              tileId: tile.id,
+              type: rowData.type || 'text',
+              content: rowData.text || rowData.content || '',
+              isQuery: rowData.isQuery || false
+            }, { transaction: t });
+          }
+        }
+      }
+      
+      // Commit the transaction
+      await t.commit();
+      
+      // Fetch the updated tile with its text rows
+      const updatedTile = await Tile.findByPk(tileId, {
+        include: [{
+          model: TextRow,
+          as: 'textRows'
+        }]
+      });
+      
+      res.status(200).json({
+        success: true,
+        data: updatedTile
+      });
+      
+    } catch (error) {
+      // Rollback transaction if any operation fails
+      await t.rollback();
+      throw error;
+    }
     
   } catch (error) {
     logger.error('Update tile error:', error);

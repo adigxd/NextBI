@@ -16,6 +16,14 @@ export interface DatabaseConnection {
   updatedAt?: string;
 }
 
+export interface DatabaseTable {
+  name: string;
+  columns: Array<{
+    name: string;
+    type: string;
+  }>;
+}
+
 export interface CreateConnectionDto {
   name: string;
   type: string;
@@ -101,6 +109,30 @@ export const databaseConnectionService = {
       return response.data.data;
     } catch (error) {
       console.error(`Error testing connection ${id}:`, error);
+      throw error;
+    }
+  },
+  
+  // Get database schema
+  async getDatabaseSchema(connectionId: string): Promise<{ tables: DatabaseTable[] }> {
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await axios.get(`${API_URL}/${connectionId}/schema`, { headers: authHeaders });
+      return response.data.data;
+    } catch (error) {
+      console.error(`Error fetching schema for connection ${connectionId}:`, error);
+      throw error;
+    }
+  },
+  
+  // Get connections by project ID
+  async getConnectionsByProjectId(projectId: string): Promise<DatabaseConnection[]> {
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await axios.get(`${API_URL}?projectId=${projectId}`, { headers: authHeaders });
+      return response.data.data;
+    } catch (error) {
+      console.error(`Error fetching connections for project ${projectId}:`, error);
       throw error;
     }
   }
