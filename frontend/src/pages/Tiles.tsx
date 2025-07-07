@@ -41,12 +41,12 @@ import DeleteIcon from '@mui/icons-material/Delete';
 
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { projectService } from '../services/projectService';
+import { projectService, Tile as BackendTile } from '../services/projectService';
 
 // Define the ServiceTile interface to match backend response
-interface ServiceTile {
+interface ServiceTileType {
   id: string;
-  name: string;
+  title: string; // Changed from 'name' to 'title' to match backend response
   description?: string;
   type: 'Table' | 'Text & Query'; // Updated to match frontend types
   dashboardId: string;
@@ -84,7 +84,7 @@ interface TextRow {
 // Define the Tile interface for our frontend
 interface Tile {
   id: string;
-  name: string;
+  title: string; // Changed from 'name' to 'title' to match backend response
   description?: string;
   type: 'Table' | 'Text & Query'; // Frontend types
   dashboardId: string;
@@ -96,24 +96,29 @@ interface Tile {
     h: number;
   };
   config?: any;
+  content?: {
+    textRows?: TextRow[];
+    tableConfig?: {
+      selectedTable: string;
+      columns: string[];
+    };
+  };
   textRows?: TextRow[];
   createdAt?: string;
   updatedAt?: string;
 }
 
-// Types are now the same on frontend and backend - no conversion needed
-
-// Convert backend tile data to frontend format
-function convertToTileData(tile: ServiceTile): TileData {
+// Common wrapper for converting backend tile data to frontend format
+const convertToTileData = (tile: BackendTile | any): Tile => {
   console.log('[DEBUG] convertToTileData - Raw tile data received:', JSON.stringify(tile, null, 2));
   
-  // Since the types are now the same, we don't need to convert anymore
-  const frontendType = tile.type;
-
-  // Find textRows from the tile data - could be in multiple places
-  let textRows = [];
-  if (frontendType === 'Text & Query') {
-    // Try to find textRows from the backend response
+  // Extract textRows from where they may be found
+  let textRows: any[] = [];
+  let frontendType = tile.type;
+  
+  // Parse the text rows from wherever they might be
+  if (tile.type === 'Text & Query') {
+    console.log('[DEBUG] This is a Text & Query tile'); 
     if (tile.textRows && Array.isArray(tile.textRows)) {
       console.log('[DEBUG] Found textRows directly in tile.textRows:', tile.textRows);
       textRows = tile.textRows.map(row => ({
@@ -133,9 +138,9 @@ function convertToTileData(tile: ServiceTile): TileData {
     }
   }
 
-  const result = {
+  const result: Tile = {
     id: tile.id,
-    title: tile.name || '',
+    title: tile.title || tile.name || '', // Support both title and name for backward compatibility
     type: frontendType,
     content: {
       textRows,
@@ -159,9 +164,9 @@ export const Tiles: React.FC = () => {
   const { userData } = useAuth();
 
   // State for project data
-  const [project, setProject] = useState<{ id: string; name: string } | null>(null);
-  const [folder, setFolder] = useState<{ id: string; name: string } | null>(null);
-  const [dashboard, setDashboard] = useState<{ id: string; name: string } | null>(null);
+  const [project, setProject] = useState<any>(null);
+  const [folder, setFolder] = useState<any>(null);
+  const [dashboard, setDashboard] = useState<any>(null);
   const [tiles, setTiles] = useState<Tile[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -195,14 +200,14 @@ export const Tiles: React.FC = () => {
 
   const handleEditTile = (tile: Tile) => {
     console.log('[DEBUG] handleEditTile - Original tile data:', JSON.stringify(tile, null, 2));
-    const convertedTile = convertToTileData(tile as unknown as ServiceTile);
+    const convertedTile = convertToTileData(tile as unknown as ServiceTileType);
     console.log('[DEBUG] handleEditTile - Converted tile data for editor:', JSON.stringify(convertedTile, null, 2));
     setEditingTile(convertedTile);
     setOpenTileEditor(true);
   };
 
   const handleDeleteTile = async (tile: Tile): Promise<void> => {
-    if (!window.confirm(`Are you sure you want to delete the tile "${tile.name || 'Untitled'}"?`)) {
+    if (!window.confirm(`Are you sure you want to delete the tile "${tile.title || 'Untitled'}"?`)) {
       return;
     }
 
@@ -246,45 +251,42 @@ export const Tiles: React.FC = () => {
       setHasEditPermission(hasPermission);
       
       // Get project details
-      const projectResponse = await projectService.getProject(projectId);
+      const projectResponse = await projectService.getProjectById(projectId);
       setProject(projectResponse);
       
       // Get folder details
-      const folderResponse = await projectService.getFolder(folderId);
+      const folderResponse = await projectService.getFolderById(folderId);
       setFolder(folderResponse);
       
       // Get dashboard details
-      const dashboardResponse = await projectService.getDashboard(dashboardId);
+      const dashboardResponse = await projectService.getDashboardById(dashboardId);
       setDashboard(dashboardResponse);
       
       // Get tiles for this dashboard
-      const tilesResponse = await projectService.getTiles(dashboardId);
-      console.log('[DEBUG] fetchData - Raw tiles from API:', JSON.stringify(tilesResponse, null, 2));
+      const serviceTiles = await projectService.getTilesByDashboardId(dashboardId);
+      console.log('[DEBUG] fetchData - Raw tiles from API:', JSON.stringify(serviceTiles, null, 2));
       
-      // Log each tile's textRows if they exist
-      tilesResponse.forEach((tile: any, index: number) => {
-        console.log(`[DEBUG] Tile ${index} (${tile.id}) - type: ${tile.type}`);
-        if (tile.textRows) {
-          console.log(`[DEBUG] Tile ${index} textRows:`, JSON.stringify(tile.textRows, null, 2));
+      // Process tiles for display
+      if (serviceTiles && Array.isArray(serviceTiles)) {
+        for (let i = 0; i < serviceTiles.length; i++) {
+          console.log(`[DEBUG] Tile ${i} (${serviceTiles[i].id}) - type: ${serviceTiles[i].type}`);
+          if (serviceTiles[i].textRows) {
+            console.log(`[DEBUG] Tile ${i} textRows:`, JSON.stringify(serviceTiles[i].textRows, null, 2));
+          }
         }
-        if (tile.content?.textRows) {
-          console.log(`[DEBUG] Tile ${index} content.textRows:`, JSON.stringify(tile.content.textRows, null, 2));
-        }
-        if (tile.config?.textRows) {
-          console.log(`[DEBUG] Tile ${index} config.textRows:`, JSON.stringify(tile.config.textRows, null, 2));
-        }
-      });
-      
-      setTiles(tilesResponse);
+        
+        // Convert service tiles to our frontend Tile format
+        const frontendTiles: Tile[] = serviceTiles.map(serviceTile => {
+          // Convert backend tile to our frontend format
+          return convertToTileData(serviceTile);
+        });
+        
+        setTiles(frontendTiles);
+      }
       
       // Load database connections
       await loadDatabaseConnections();
       
-      setLoading(false);
-      }));
-
-      setTiles(frontendTiles);
-
       if (userData?.id) {
         const editPermission = await hasProjectPermission(projectId, 'edit');
         setHasEditPermission(editPermission);
@@ -362,26 +364,14 @@ export const Tiles: React.FC = () => {
         tileData.textRows = [];
       }
 
-      const response = await projectService.createTile(tileData);
+      const response: BackendTile = await projectService.createTile(tileData);
 
-      if (response) {
-        const newTile: Tile = {
-          id: response.id,
-          name: response.title || '',
-          dashboardId: response.dashboardId,
-          type: response.type,
-          connectionId: response.connectionId,
-          position: response.position || { x: 0, y: 0, w: 6, h: 4 },
-          config: response.config,
-          textRows: response.textRows || [],
-          createdAt: response.createdAt,
-          updatedAt: response.updatedAt
-        };
+      // Convert backend tile to frontend format
+      const updatedTile: Tile = convertToTileData(response);
 
-        setTiles(prevTiles => [...prevTiles, newTile]);
-        handleCloseDialog();
-        setError(null);
-      }
+      setTiles(prevTiles => [...prevTiles, updatedTile]);
+      handleCloseDialog();
+      setError(null);
     } catch (error) {
       console.error('Error creating tile:', error);
       setError('Failed to create tile');
@@ -545,8 +535,8 @@ export const Tiles: React.FC = () => {
                       {getTileIcon(tile.type)}
                     </Box>
                     <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="h6" component="h3" noWrap title={tile.name}>
-                        {tile.name || 'Untitled Tile'}
+                      <Typography variant="h6" component="h3" noWrap title={tile.title}>
+                        {tile.title || 'Untitled Tile'}
                       </Typography>
                       <Typography variant="body2" color="text.secondary" noWrap>
                         {tile.description || ''}
@@ -561,9 +551,9 @@ export const Tiles: React.FC = () => {
                   {expandedTileId === tile.id && (
                     <Box sx={{ mt: 2 }}>
                       {/* Text & Query Tile Content */}
-                      {tile.type === 'Text & Query' && tile.config?.textRows && (
+                      {tile.type === 'Text & Query' && (tile.content?.textRows || tile.config?.textRows) && (
                         <Box>
-                          {tile.config.textRows.map((row: any, idx: number) => (
+                          {(tile.content?.textRows || tile.config?.textRows || []).map((row: any, idx: number) => (
                             <Box key={row.id || idx} sx={{ mb: 2 }}>
                               {!row.isQuery ? (
                                 <>
@@ -633,7 +623,7 @@ export const Tiles: React.FC = () => {
                       )}
                       
                       {/* No configuration yet */}
-                      {!tile.config && (
+                      {!tile.config && (!tile.content?.textRows || tile.content.textRows.length === 0) && (
                         <Box sx={{ py: 3, textAlign: 'center' }}>
                           <Typography color="text.secondary" align="center">
                             This tile has no content configured
