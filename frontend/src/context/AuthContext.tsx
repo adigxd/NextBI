@@ -3,6 +3,7 @@ import { PublicClientApplication, AccountInfo, InteractionRequiredAuthError, Eve
 import { msalConfig, loginRequest } from '../config/auth.config';
 import { loginWithAzure, getStoredSession } from '../services/loginService';
 import { getUser, clearAuthData } from '../services/authService';
+import { setAuthLogoutFunction, setupAxiosInterceptors } from '../utils/axiosInterceptors';
 
 // Define the shape of our auth context
 export interface AuthContextType {
@@ -34,6 +35,10 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+  // Initialize axios interceptors
+  useEffect(() => {
+    setupAxiosInterceptors();
+  }, []);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [userData, setUserData] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -365,6 +370,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   // Add an effect to monitor authentication state changes
+  // Register the logout function with the axios interceptor
+  useEffect(() => {
+    setAuthLogoutFunction(logout);
+  }, [logout]);
+  
   useEffect(() => {
     console.log('AuthProvider - Authentication state changed:', { isAuthenticated, userData });
     
