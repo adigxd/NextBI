@@ -320,7 +320,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   // Logout function
-  const logout = async () => {
+  // isAutoLogout flag indicates if this logout was triggered automatically by token expiration
+  const logout = async (isAutoLogout?: boolean) => {
     try {
       const currentAuthMethod = localStorage.getItem('79bi_auth_method');
       console.log(`Logging out with auth method: ${currentAuthMethod || 'unknown'}`);
@@ -340,12 +341,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // If using MSAL auth and instance exists, also log out from Microsoft
       if (currentAuthMethod === 'msal' && msalInstance) {
         try {
-          console.log('Starting MSAL logout');
-          // Use logoutPopup instead of redirect to avoid navigation issues
-          await msalInstance.logoutPopup({
-            postLogoutRedirectUri: window.location.origin,
-          });
-          console.log('MSAL logout completed');
+          console.log(`Starting MSAL logout (auto: ${isAutoLogout ? 'yes' : 'no'})`);
+          
+          if (isAutoLogout) {
+            // For automatic logouts, use logoutRedirect with main window redirect
+            // This closes the popup and redirects the main window
+            msalInstance.logoutRedirect({
+              onRedirectNavigate: () => {
+                // Return false to prevent MSAL from redirecting within the popup
+                // We'll handle the redirect ourselves
+                window.location.href = '/login';
+                return false;
+              }
+            });
+          } else {
+            // For manual logouts, use logoutPopup as before
+            await msalInstance.logoutPopup({
+              postLogoutRedirectUri: window.location.origin,
+            });
+            console.log('MSAL logout completed');
+          }
         } catch (msalError) {
           console.error('MSAL logout error:', msalError);
           // Fall back to manual navigation

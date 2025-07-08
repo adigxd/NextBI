@@ -1,13 +1,13 @@
 import axios from 'axios';
 
 // Store auth context reference
-let authLogout: (() => void) | null = null;
+let authLogout: ((isAutoLogout?: boolean) => void) | null = null;
 
 /**
  * Sets up the reference to auth context logout function
  * This should be called from the AuthContext provider component
  */
-export const setAuthLogoutFunction = (logoutFn: () => void) => {
+export const setAuthLogoutFunction = (logoutFn: (isAutoLogout?: boolean) => void) => {
   authLogout = logoutFn;
 };
 
@@ -29,8 +29,8 @@ export const setupAxiosInterceptors = () => {
         
         // Check if we have a logout function reference
         if (authLogout) {
-          // Trigger logout
-          authLogout();
+          // Trigger logout with auto logout flag
+          authLogout(true);
         } else {
           console.error('Auth logout function not set, cannot perform automatic logout');
           // Fallback: Try to redirect to login
