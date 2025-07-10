@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import GridLayout from 'react-grid-layout';
+import 'react-grid-layout/css/styles.css';
 import {
   Typography,
   Button,
@@ -6,7 +8,6 @@ import {
   Card,
   CardContent,
   IconButton,
-  Menu,
   MenuItem,
   Snackbar,
   Alert,
@@ -38,8 +39,10 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 import TextFieldsIcon from '@mui/icons-material/TextFields';
 import CodeIcon from '@mui/icons-material/Code';
 import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 
 import { useNavigate, useParams } from 'react-router-dom';
+import { Layout } from 'react-grid-layout';
 import { useAuth } from '../context/AuthContext';
 import { projectService, Tile as BackendTile } from '../services/projectService';
 
@@ -67,7 +70,7 @@ interface ServiceTileType {
 
 import { databaseConnectionService, DatabaseConnection } from '../services/databaseConnectionService';
 
-import TileEditor, { TileData } from '../components/Tiles/TileEditor';
+import TileEditor from '../components/Tiles/TileEditor';
 import { hasProjectPermission } from '../services/userService';
 
 // Define the TextRow interface
@@ -81,6 +84,30 @@ interface TextRow {
   updatedAt?: string;
 }
 
+// Define the TileData interface for the TileEditor component
+interface TileData {
+  id: string;
+  title: string;
+  description?: string;
+  type: 'Table' | 'Text & Query';
+  dashboardId: string;
+  connectionId: string;
+  position: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  };
+  config?: any;
+  content?: {
+    textRows?: TextRow[];
+    tableConfig?: {
+      selectedTable: string;
+      columns: string[];
+    };
+  };
+}
+
 // Define the Tile interface for our frontend
 interface Tile {
   id: string;
@@ -89,7 +116,8 @@ interface Tile {
   type: 'Table' | 'Text & Query'; // Frontend types
   dashboardId: string;
   connectionId?: string;
-  position?: {
+  // Position is now required for dragging functionality
+  position: {
     x: number;
     y: number;
     w: number;
@@ -119,40 +147,70 @@ const convertToTileData = (tile: BackendTile | any): Tile => {
   // Parse the text rows from wherever they might be
   if (tile.type === 'Text & Query') {
     console.log('[DEBUG] This is a Text & Query tile'); 
+    
+    // Try to find textRows in all possible locations
     if (tile.textRows && Array.isArray(tile.textRows)) {
       console.log('[DEBUG] Found textRows directly in tile.textRows:', tile.textRows);
-      textRows = tile.textRows.map(row => ({
+      textRows = tile.textRows.map((row: any) => ({
         id: row.id || '',
+        tileId: row.tileId || tile.id, // Ensure tileId is set
         type: row.type || 'text',
-        content: row.content || '',
+        content: row.content || row.text || '', // Support both content and text properties
         isQuery: !!row.isQuery
       }));
     } else if (tile.content?.textRows && Array.isArray(tile.content.textRows)) {
       console.log('[DEBUG] Found textRows in tile.content.textRows:', tile.content.textRows);
-      textRows = tile.content.textRows;
+      textRows = tile.content.textRows.map((row: any) => ({
+        id: row.id || '',
+        tileId: row.tileId || tile.id,
+        type: row.type || 'text',
+        content: row.content || row.text || '',
+        isQuery: !!row.isQuery
+      }));
     } else if (tile.config?.textRows && Array.isArray(tile.config.textRows)) {
       console.log('[DEBUG] Found textRows in tile.config.textRows:', tile.config.textRows);
-      textRows = tile.config.textRows;
+      textRows = tile.config.textRows.map((row: any) => ({
+        id: row.id || '',
+        tileId: row.tileId || tile.id,
+        type: row.type || 'text',
+        content: row.content || row.text || '',
+        isQuery: !!row.isQuery
+      }));
     } else {
       console.log('[DEBUG] No textRows found in any expected location');
     }
+    
+    // Additional debug logging
+    console.log('[DEBUG] Final textRows after extraction:', JSON.stringify(textRows, null, 2));
   }
 
   const result: Tile = {
     id: tile.id,
     title: tile.title || tile.name || '', // Support both title and name for backward compatibility
     type: frontendType,
+    description: tile.description || '',
     content: {
-      textRows,
+      textRows: textRows.length > 0 ? textRows : undefined,
       tableConfig: frontendType === 'Table' ? {
         selectedTable: tile.config?.tableConfig?.selectedTable || '',
         columns: tile.config?.tableConfig?.columns || []
       } : undefined
     },
-    dashboardId: tile.dashboardId,
-    connectionId: tile.connectionId || '', // Ensure connectionId is always a string
-    position: tile.position || { x: 0, y: 0, w: 6, h: 4 }
+    dashboardId: tile.dashboardId || '',
+    connectionId: tile.connectionId,
+    position: tile.position || { x: 0, y: 0, w: 6, h: 6 },
+    config: tile.config || {}
   };
+  
+  // Always ensure textRows are available at both locations for consistent access
+  if (result.type === 'Text & Query') {
+    // Make sure textRows are accessible at the root level for the editor
+    result.textRows = textRows.length > 0 ? textRows : [];
+    
+    // And ensure they're in the content object for rendering
+    if (!result.content) result.content = {};
+    result.content.textRows = textRows.length > 0 ? textRows : [];
+  }
   
   console.log('[DEBUG] convertToTileData - Converted tile data:', JSON.stringify(result, null, 2));
   return result;
@@ -160,7 +218,11 @@ const convertToTileData = (tile: BackendTile | any): Tile => {
 
 export const Tiles: React.FC = () => {
   const navigate = useNavigate();
-  const { projectId, folderId, dashboardId } = useParams<{ projectId: string; folderId: string; dashboardId: string }>();
+  // Get route parameters with proper type handling
+  const params = useParams();
+  const projectId = params.projectId || '';
+  const folderId = params.folderId || '';
+  const dashboardId = params.dashboardId || '';
   const { userData } = useAuth();
 
   // State for project data
@@ -180,48 +242,148 @@ export const Tiles: React.FC = () => {
   const [availableConnections, setAvailableConnections] = useState<DatabaseConnection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
 
-  // Variables and functions below are no longer needed with inline visualization approach
-  // Keeping the commented code for reference if we need to revert
-  const [expandedTileId, setExpandedTileId] = useState<string | null>(null);
+  // All tiles are now expanded by default
+  // We track collapsed tiles instead of expanded ones
+  const [collapsedTileIds, setCollapsedTileIds] = useState<string[]>([]);
   
-  // Track which tile is being hovered for action buttons
-  const [hoveredTileId, setHoveredTileId] = useState<string | null>(null);
+  // State for grid layout
+  const [layouts, setLayouts] = useState<Layout[]>([]);
+  
+  // State for hover effects - currently used only in rendering conditions
+  const hoveredTileId = null;
 
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const [openTileEditor, setOpenTileEditor] = useState(false);
   const [editingTile, setEditingTile] = useState<TileData | null>(null);
 
-  // Toggle expanded state for a tile to show its visualization
+  // Toggle collapsed state for a tile
   const handleTileClick = (tile: Tile): void => {
-    // Toggle expanded state for the clicked tile
-    setExpandedTileId(expandedTileId === tile.id ? null : tile.id);
+    // Toggle collapsed state for the clicked tile
+    setCollapsedTileIds(prevState => {
+      if (prevState.includes(tile.id)) {
+        return prevState.filter(id => id !== tile.id);
+      } else {
+        return [...prevState, tile.id];
+      }
+    });
   };
 
   const handleEditTile = (tile: Tile) => {
+    console.log('%c[DEBUG] EDIT BUTTON CLICKED', 'background: #ffcc00; color: black; font-size: 14px; font-weight: bold;');
     console.log('[DEBUG] handleEditTile - Original tile data:', JSON.stringify(tile, null, 2));
-    const convertedTile = convertToTileData(tile as unknown as ServiceTileType);
-    console.log('[DEBUG] handleEditTile - Converted tile data for editor:', JSON.stringify(convertedTile, null, 2));
-    setEditingTile(convertedTile);
-    setOpenTileEditor(true);
+  
+    try {
+      const convertedTile = convertToTileData(tile as unknown as ServiceTileType);
+      console.log('[DEBUG] handleEditTile - Converted tile data for editor:', JSON.stringify(convertedTile, null, 2));
+      
+      // Convert to TileData format with required fields
+      const editorTile: TileData = {
+        ...convertedTile,
+        connectionId: convertedTile.connectionId || '',
+        config: convertedTile.config || {}
+      };
+      
+      console.log('[DEBUG] handleEditTile - Setting editingTile:', editorTile);
+      setEditingTile(editorTile);
+      console.log('[DEBUG] handleEditTile - Setting openTileEditor to true');
+      setOpenTileEditor(true);
+      console.log('[DEBUG] handleEditTile - Function completed successfully');
+    } catch (error) {
+      console.error('[ERROR] Error in handleEditTile:', error);
+    }
   };
 
   const handleDeleteTile = async (tile: Tile): Promise<void> => {
-    if (!window.confirm(`Are you sure you want to delete the tile "${tile.title || 'Untitled'}"?`)) {
-      return;
-    }
+    console.log('%c[DEBUG] DELETE BUTTON CLICKED', 'background: #ff6347; color: white; font-size: 14px; font-weight: bold;');
+    console.log('[DEBUG] handleDeleteTile - Tile data:', JSON.stringify(tile, null, 2));
 
     try {
-      await projectService.deleteTile(tile.id);
+      const confirmResult = window.confirm(`Are you sure you want to delete the tile "${tile.title || 'Untitled'}"?`);
+      console.log('[DEBUG] handleDeleteTile - Confirm result:', confirmResult);
+      
+      if (!confirmResult) {
+        console.log('[DEBUG] handleDeleteTile - User cancelled deletion');
+        return;
+      }
 
-      setTiles(prev => prev.filter(t => t.id !== tile.id));
+      console.log('[DEBUG] handleDeleteTile - Deleting tile with ID:', tile.id);
+      await projectService.deleteTile(tile.id);
+      console.log('[DEBUG] handleDeleteTile - Backend deletion successful');
+
+      console.log('[DEBUG] handleDeleteTile - Updating tiles state to remove deleted tile');
+      setTiles(prev => {
+        const newTiles = prev.filter(t => t.id !== tile.id);
+        console.log('[DEBUG] handleDeleteTile - New tiles count:', newTiles.length);
+        return newTiles;
+      });
 
       setError(null);
+      console.log('[DEBUG] handleDeleteTile - Deletion completed successfully');
     } catch (error) {
-      console.error('Error deleting tile:', error);
-
+      console.error('[ERROR] Error in handleDeleteTile:', error);
       setError(`Failed to delete tile: ${(error as Error).message}`);
     }
+  };
+
+  // Handle layout changes when tiles are dragged or resized
+  const handleLayoutChange = (newLayout: Layout[]): void => {
+    console.log('[DEBUG] Layout changed:', JSON.stringify(newLayout, null, 2));
+    
+    // Make sure minimum size constraints are preserved
+    const constrainedLayout = newLayout.map(layoutItem => {
+      // Get the tile corresponding to this layout item
+      const tile = tiles.find(t => t.id === layoutItem.i);
+      if (tile) {
+        // Apply minimum sizes based on tile type
+        let minW = 4; // Default minimum width
+        let minH = 6; // Default minimum height
+        
+        // Text & Query tiles with content need more space
+        if (tile.type === 'Text & Query' && tile.content?.textRows) {
+          minH = Math.max(6, Math.min(12, 4 + tile.content.textRows.length));
+        }
+        
+        // Table tiles need more width
+        if (tile.type === 'Table') {
+          minW = 6;
+        }
+        
+        // Ensure layout respects minimum sizes
+        return {
+          ...layoutItem,
+          w: Math.max(layoutItem.w, minW),
+          h: Math.max(layoutItem.h, minH),
+          minW,
+          minH
+        };
+      }
+      return layoutItem;
+    });
+    
+    setLayouts(constrainedLayout);
+    
+    // Update the tile positions in state
+    const updatedTiles = tiles.map(tile => {
+      const layoutItem = constrainedLayout.find(item => item.i === tile.id);
+      if (layoutItem) {
+        return {
+          ...tile,
+          position: {
+            x: layoutItem.x,
+            y: layoutItem.y,
+            w: layoutItem.w,
+            h: layoutItem.h
+          }
+        };
+      }
+      return tile;
+    });
+    
+    setTiles(updatedTiles);
+    
+    // Save the updated layouts to backend (debounced or throttled in a real app)
+    // This just updates the position in memory - a real implementation would persist to backend
   };
 
   // Helper function to render the appropriate icon for each tile type
@@ -236,618 +398,519 @@ export const Tiles: React.FC = () => {
     }
   };
 
-  const fetchData = async () => {
-    if (!projectId || !folderId || !dashboardId) {
-      setError('Missing required parameters');
-      setLoading(false);
-      return;
-    }
-
+  // We need to handle adding new tiles
+  const handleAddTile = async () => {
+    if (!tileName.trim()) return;
+    
     try {
-      setLoading(true);
-      
-      // Check if user has edit permission for this project
-      const hasPermission = await hasProjectPermission(projectId, 'edit');
-      setHasEditPermission(hasPermission);
-      
-      // Get project details
-      const projectResponse = await projectService.getProjectById(projectId);
-      setProject(projectResponse);
-      
-      // Get folder details
-      const folderResponse = await projectService.getFolderById(folderId);
-      setFolder(folderResponse);
-      
-      // Get dashboard details
-      const dashboardResponse = await projectService.getDashboardById(dashboardId);
-      setDashboard(dashboardResponse);
-      
-      // Get tiles for this dashboard
-      const serviceTiles = await projectService.getTilesByDashboardId(dashboardId);
-      console.log('[DEBUG] fetchData - Raw tiles from API:', JSON.stringify(serviceTiles, null, 2));
-      
-      // Process tiles for display
-      if (serviceTiles && Array.isArray(serviceTiles)) {
-        for (let i = 0; i < serviceTiles.length; i++) {
-          console.log(`[DEBUG] Tile ${i} (${serviceTiles[i].id}) - type: ${serviceTiles[i].type}`);
-          if (serviceTiles[i].textRows) {
-            console.log(`[DEBUG] Tile ${i} textRows:`, JSON.stringify(serviceTiles[i].textRows, null, 2));
-          }
+      const newTile = {
+        title: tileName,
+        description: tileDescription,
+        type: selectedTileType,
+        dashboardId: dashboardId || '',
+        connectionId: selectedConnectionId,
+        position: {
+          x: 0,
+          y: 0,
+          w: selectedTileType === 'Table' ? 6 : 4,
+          h: 6
         }
-        
-        // Convert service tiles to our frontend Tile format
-        const frontendTiles: Tile[] = serviceTiles.map(serviceTile => {
-          // Convert backend tile to our frontend format
-          return convertToTileData(serviceTile);
-        });
-        
-        setTiles(frontendTiles);
-      }
+      };
+
+      // Create the tile via API
+      const createdTile = await projectService.createTile(newTile);
       
-      // Load database connections
-      await loadDatabaseConnections();
+      // Convert to frontend format and add to state
+      const frontendTile = convertToTileData(createdTile);
+      setTiles(prev => [...prev, frontendTile]);
       
-      if (userData?.id) {
-        const editPermission = await hasProjectPermission(projectId, 'edit');
-        setHasEditPermission(editPermission);
-      }
-    } catch (err) {
-      console.error('Error fetching dashboard tiles:', err);
-      setError('Failed to load dashboard tiles');
-    } finally {
-      setLoading(false);
+      // Update layouts
+      setLayouts(prev => [...prev, {
+        i: frontendTile.id,
+        x: frontendTile.position.x,
+        y: frontendTile.position.y,
+        w: frontendTile.position.w,
+        h: frontendTile.position.h,
+        minW: frontendTile.type === 'Table' ? 6 : 4,
+        minH: 6
+      }]);
+      
+      // Close dialog and reset form
+      setOpenDialog(false);
+      setTileName('');
+      setTileDescription('');
+      
+    } catch (error) {
+      console.error('Error creating tile:', error);
+      setError(`Failed to create tile: ${(error as Error).message}`);
     }
   };
-
+  
+  // Load data on component mount
   useEffect(() => {
-    fetchData();
-  }, [projectId, folderId, dashboardId, userData?.id]);
-
-  const loadDatabaseConnections = async () => {
-    if (!projectId) return;
-
-    try {
-      const connections = await databaseConnectionService.getConnectionsByProjectId(projectId);
-      setAvailableConnections(connections);
-    } catch (error) {
-      console.error('Error loading database connections:', error);
-      setError('Failed to load database connections');
-    }
-  };
-
-  const handleOpenDialog = async (): Promise<void> => {
-    try {
-      await loadDatabaseConnections();
-    } catch (error) {
-      console.error('Error fetching database connections:', error);
-      setError('Failed to load database connections');
-    }
-
-    setOpenDialog(true);
-  };
-
-  const handleCloseDialog = (): void => {
-    setOpenDialog(false);
-    setTileName('');
-    setTileDescription('');
-    setSelectedTileType('Table');
-    setSelectedConnectionId('');
-  };
-
-  const handleSaveTile = async (): Promise<void> => {
-    if (!dashboardId || !tileName.trim()) return;
-
-    try {
-      if (!selectedConnectionId) {
-        setError('Database connection is required for all tile types');
+    const loadDashboardData = async () => {
+      if (!projectId || !folderId || !dashboardId) {
+        console.log('[INFO] Missing required parameters:', { projectId, folderId, dashboardId });
+        setError('Missing required parameters. Please make sure project, folder and dashboard IDs are provided.');
+        setLoading(false);
         return;
       }
 
-      const tileData = {
-        title: tileName.trim(),
-        description: tileDescription.trim() || undefined,
-        dashboardId,
-        type: selectedTileType,
-        position: { x: 0, y: 0, w: 6, h: 4 },
-        connectionId: selectedConnectionId
-      };
-
-      if (selectedTileType === 'Table') {
-        tileData.config = {
-          tableConfig: {
-            selectedTable: '',
-            columns: []
-          },
-          uiType: 'table'
-        };
-      } else if (selectedTileType === 'Text & Query') {
-        tileData.textRows = [];
+      try {
+        setLoading(true);
+        
+        // Only use this as fallback if needed - DISABLED for now
+        if (false) {
+          console.log('[DEV] Using mock data due to missing parameters');
+          // Create mock data and return
+          setProject({ id: 'mock-project', name: 'Mock Project', description: 'Mock project for testing' });
+          setFolder({ id: 'mock-folder', name: 'Mock Folder', description: 'Mock folder for testing', projectId: 'mock-project' });
+          setDashboard({ id: 'mock-dashboard', name: 'Mock Dashboard', description: 'Mock dashboard for testing', folderId: 'mock-folder' });
+          setTiles([]);
+          setHasEditPermission(true);
+          
+          // Create mock database connections so they appear in the dropdown
+          setAvailableConnections([
+            { 
+              id: 'mock-conn-1', 
+              name: 'Mock MySQL Connection',
+              type: 'mysql',
+              host: 'localhost',
+              port: 3306,
+              database: 'mock_db',
+              username: 'user',
+              status: 'active',
+              createdAt: new Date().toISOString()
+            },
+            { 
+              id: 'mock-conn-2', 
+              name: 'Mock PostgreSQL Connection',
+              type: 'postgres',
+              host: 'localhost',
+              port: 5432,
+              database: 'mock_db',
+              username: 'user',
+              status: 'active',
+              createdAt: new Date().toISOString()
+            }
+          ]);
+          setError(null);
+          setLoading(false);
+          return;
+        }
+        
+        // Load project, folder and dashboard data
+        console.log('[INFO] Loading data for project:', projectId, 'folder:', folderId, 'dashboard:', dashboardId);
+        const projectData = await projectService.getProjectById(projectId);
+        console.log('[DEBUG] Project data loaded:', projectData);
+        
+        const folderData = await projectService.getFolderById(folderId);
+        console.log('[DEBUG] Folder data loaded:', folderData);
+        
+        const dashboardData = await projectService.getDashboardById(dashboardId);
+        console.log('[DEBUG] Dashboard data loaded:', dashboardData);
+        
+        // Check if user has edit permission
+        const canEdit = await hasProjectPermission(projectId, 'edit');
+        
+        // Load database connections for the tile editor
+        const connections = await databaseConnectionService.getAllConnections();
+        console.log('[DEBUG] Loaded database connections:', connections);
+        
+        // Set the available connections for the tile editor
+        setAvailableConnections(connections);
+        
+        // Load tiles for this dashboard
+        const dashboardTiles = await projectService.getTilesByDashboardId(dashboardId);
+        console.log('[DEBUG] Loaded tiles:', dashboardTiles);
+        
+        // Convert backend tiles to frontend format
+        const frontendTiles = dashboardTiles.map(tile => convertToTileData(tile));
+        console.log('[DEBUG] Converted tiles:', frontendTiles);
+        
+        // Extract layout information from tiles
+        const extractedLayouts = frontendTiles.map(tile => ({
+          i: tile.id,
+          x: tile.position.x,
+          y: tile.position.y,
+          w: tile.position.w,
+          h: tile.position.h,
+          minW: tile.type === 'Table' ? 6 : 4,
+          minH: 6
+        }));
+        
+        // Update state with all the loaded data
+        setProject(projectData);
+        setFolder(folderData);
+        setDashboard(dashboardData);
+        setTiles(frontendTiles);
+        setLayouts(extractedLayouts);
+        setAvailableConnections(connections);
+        setHasEditPermission(canEdit);
+        
+        setError(null);
+      } catch (error: any) {
+        console.error('Error loading dashboard data:', error);
+        // Show a more detailed error message
+        const errorMessage = error?.response?.data?.message || error?.message || 'Failed to load dashboard data';
+        setError(`Failed to load dashboard: ${errorMessage}`);
+        
+        // DISABLED mock data
+        if (false) {
+          console.log('[DEV] Using mock data due to error');
+          // Create mock data
+          setProject({ id: 'mock-project', name: 'Mock Project', description: 'Mock project for testing' });
+          setFolder({ id: 'mock-folder', name: 'Mock Folder', description: 'Mock folder for testing', projectId: 'mock-project' });
+          setDashboard({ id: 'mock-dashboard', name: 'Mock Dashboard', description: 'Mock dashboard for testing', folderId: 'mock-folder' });
+          setTiles([]);
+          setHasEditPermission(true);
+          
+          // Create mock database connections
+          setAvailableConnections([
+            { 
+              id: 'mock-conn-1', 
+              name: 'Mock MySQL Connection',
+              type: 'mysql',
+              host: 'localhost',
+              port: 3306,
+              database: 'mock_db',
+              username: 'user',
+              status: 'active',
+              createdAt: new Date().toISOString()
+            },
+            { 
+              id: 'mock-conn-2', 
+              name: 'Mock PostgreSQL Connection',
+              type: 'postgres',
+              host: 'localhost',
+              port: 5432,
+              database: 'mock_db',
+              username: 'user',
+              status: 'active',
+              createdAt: new Date().toISOString()
+            }
+          ]);
+        }
+      } finally {
+        setLoading(false);
       }
+    };
 
-      const response: BackendTile = await projectService.createTile(tileData);
+    loadDashboardData();
+  }, [projectId, folderId, dashboardId]);
 
-      // Convert backend tile to frontend format
-      const updatedTile: Tile = convertToTileData(response);
-
-      setTiles(prevTiles => [...prevTiles, updatedTile]);
-      handleCloseDialog();
-      setError(null);
-    } catch (error) {
-      console.error('Error creating tile:', error);
-      setError('Failed to create tile');
-    }
-  };
-
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Box sx={{ p: 2 }}>
-        <Alert severity="error">{error}</Alert>
-      </Box>
-    );
-  }
-
+  // Render function
   return (
-    <Box sx={{ p: 2 }}>
-      <Snackbar
-        open={notification !== null}
-        autoHideDuration={6000}
-        onClose={() => setNotification(null)}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setNotification(null)}
-          severity={notification?.type || 'info'}
-          sx={{ width: '100%' }}
-        >
-          {notification?.message || ''}
-        </Alert>
-      </Snackbar>
-
-      <Breadcrumbs aria-label="breadcrumb" sx={{ mb: 2 }}>
-        <Link color="inherit" href="/projects" onClick={(e) => { e.preventDefault(); navigate('/projects'); }}>
-          Projects
-        </Link>
-        <Link
-          color="inherit"
-          href={`/projects/${projectId}`}
-          onClick={(e) => { e.preventDefault(); navigate(`/projects/${projectId}`); }}
-        >
-          {project?.name || 'Project'}
-        </Link>
-        <Link
-          color="inherit"
-          href={`/projects/${projectId}/folders/${folderId}`}
-          onClick={(e) => { e.preventDefault(); navigate(`/projects/${projectId}/folders/${folderId}`); }}
-        >
-          {folder?.name || 'Folder'}
-        </Link>
-        <Typography color="text.primary">{dashboard?.name || 'Dashboard'}</Typography>
-      </Breadcrumbs>
-
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-        <Typography variant="h4" component="h1">
-          Tiles
-        </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={handleOpenDialog}
-          disabled={!hasEditPermission}
-        >
-          Create Tile
-        </Button>
-      </Box>
-
-      {tiles.length === 0 ? (
-        <Box sx={{ textAlign: 'center', mt: 4 }}>
-          <TextFieldsIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
-          <Typography variant="h6" color="text.secondary">
-            No tiles yet
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Create a tile to visualize your data
-          </Typography>
-          {hasEditPermission && (
-            <Grid container sx={{ mt: 3, mb: 6 }}>
-              <Grid item xs={12} display="flex" justifyContent="space-between" alignItems="center">
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={handleOpenDialog}
-                >
-                  Add Tile
-                </Button>
-                
-                {/* No empty hidden elements needed */}
-              </Grid>
-            </Grid>
-          )}
+    <Box sx={{ padding: 2 }}>
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+          <CircularProgress />
         </Box>
+      ) : error ? (
+        <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
       ) : (
-        <Grid container spacing={3}>
-          {tiles.map((tile) => (
-            <Grid item key={tile.id} xs={12} sm={6} md={expandedTileId === tile.id ? 12 : 4}>
-              <Card
-                elevation={expandedTileId === tile.id ? 3 : 1}
-                sx={{
-                  height: '100%',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  transition: 'all 0.3s ease',
-                  position: 'relative',
-                  border: expandedTileId === tile.id ? '1px solid' : 'none',
-                  borderColor: 'primary.light'
+        <>
+          {/* Dashboard header */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+            <Typography variant="h4" component="h1">
+              {dashboard?.name || 'Dashboard'}
+            </Typography>
+            {hasEditPermission && (
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  // Reset form fields
+                  setTileName('');
+                  setTileDescription('');
+                  setSelectedTileType('Table');
+                  setSelectedConnectionId('');
+                  setOpenDialog(true);
                 }}
-                onClick={() => handleTileClick(tile)}
-                onMouseEnter={() => setHoveredTileId(tile.id)}
-                onMouseLeave={() => setHoveredTileId(null)}
               >
-                <CardContent sx={{ flexGrow: 1, p: 2 }}>
-                  {/* Action buttons that appear on hover */}
-                  {hoveredTileId === tile.id && hasEditPermission && (
-                    <Box 
-                      sx={{
-                        position: 'absolute',
-                        top: 8,
-                        right: 8,
-                        display: 'flex',
-                        gap: 1,
-                        zIndex: 2
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <IconButton 
-                        size="small" 
-                        color="primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditTile(tile);
-                        }}
-                      >
-                        <TextFieldsIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton 
-                        size="small" 
-                        color="error"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTile(tile);
-                        }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
-                  )}
-                  {/* Tile Header */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ mr: 2 }}>
-                      {/* This ensures getTileIcon is actually used */}
-                      {getTileIcon(tile.type)}
-                    </Box>
-                    <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="h6" component="h3" noWrap title={tile.title}>
-                        {tile.title || 'Untitled Tile'}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" noWrap>
-                        {tile.description || ''}
-                      </Typography>
-                    </Box>
-                  </Box>
+                Add Tile
+              </Button>
+            )}
+          </Box>
 
-                  {/* Divider between header and content */}
-                  {expandedTileId === tile.id && <Divider sx={{ my: 1 }} />}
-                  
-                  {/* Tile Content - shown when expanded */}
-                  {expandedTileId === tile.id && (
-                    <Box sx={{ mt: 2 }}>
-                      {/* Text & Query Tile Content */}
-                      {tile.type === 'Text & Query' && (tile.content?.textRows || tile.config?.textRows) && (
-                        <Box>
-                          {(tile.content?.textRows || tile.config?.textRows || []).map((row: any, idx: number) => (
-                            <Box key={row.id || idx} sx={{ mb: 2 }}>
-                              {!row.isQuery ? (
-                                <>
-                                  {row.type === 'header' && (
-                                    <Typography variant="h4">{row.content || 'Header Text'}</Typography>
-                                  )}
-                                  {row.type === 'subheader' && (
-                                    <Typography variant="h5">{row.content || 'Subheader Text'}</Typography>
-                                  )}
-                                  {row.type === 'text' && (
-                                    <Typography variant="body1">{row.content || 'Regular Text'}</Typography>
-                                  )}
-                                </>
-                              ) : (
-                                <Box sx={{ p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                                    <CodeIcon fontSize="small" color="primary" sx={{ mr: 1 }} />
-                                    <Typography variant="subtitle2" color="primary">Query Result</Typography>
-                                  </Box>
-                                  <Typography variant="body2" component="pre" 
-                                    sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', p: 1, bgcolor: 'background.paper', borderRadius: 1 }}>
-                                    {row.content ? row.content : 'No query defined'}
-                                  </Typography>
-                                </Box>
-                              )}
-                            </Box>
-                          ))}
-                        </Box>
-                      )}
-                      
-                      {/* Table Tile Content */}
-                      {tile.type === 'Table' && tile.config?.tableConfig && (
-                        <Box>
-                          {tile.config.tableConfig.selectedTable && tile.config.tableConfig.columns && 
-                           tile.config.tableConfig.columns.length > 0 ? (
-                            <Box>
-                              <TableContainer component={Paper} variant="outlined">
-                                <Table size="small">
-                                  <TableHead>
-                                    <TableRow>
-                                      {tile.config.tableConfig.columns.map((column: string) => (
-                                        <TableCell key={column}>{column}</TableCell>
-                                      ))}
-                                    </TableRow>
-                                  </TableHead>
-                                  <TableBody>
-                                    <TableRow>
-                                      <TableCell colSpan={tile.config.tableConfig.columns.length} align="center">
-                                        <Typography variant="body2" color="text.secondary">
-                                          Data would display here when connected to the database
-                                        </Typography>
-                                      </TableCell>
-                                    </TableRow>
-                                  </TableBody>
-                                </Table>
-                              </TableContainer>
-                              <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
-                                Table: <b>{tile.config.tableConfig.selectedTable}</b>
-                              </Typography>
-                            </Box>
-                          ) : (
-                            <Typography color="text.secondary" align="center" sx={{ py: 3 }}>
-                              No table or columns configured
-                            </Typography>
-                          )}
-                        </Box>
-                      )}
-                      
-                      {/* No configuration yet */}
-                      {!tile.config && (!tile.content?.textRows || tile.content.textRows.length === 0) && (
-                        <Box sx={{ py: 3, textAlign: 'center' }}>
-                          <Typography color="text.secondary" align="center">
-                            This tile has no content configured
-                          </Typography>
-                          <Button 
-                            size="small" 
-                            sx={{ mt: 1 }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEditTile(tile);
-                            }}
-                          >
-                            Configure Tile
-                          </Button>
-                        </Box>
-                      )}
-                    </Box>
-                  )}
-                  
-                  {/* Preview content when not expanded */}
-                  {!expandedTileId || expandedTileId !== tile.id ? (
-                    <Box sx={{ mt: 2, opacity: 0.7 }}>
-                      {tile.type === 'Table' && tile.config?.tableConfig && (
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <TableChartIcon color="action" sx={{ mr: 1 }} />
-                          <Typography variant="body2" color="text.secondary" noWrap>
-                            {tile.config.tableConfig.selectedTable || 'Table view'}
-                          </Typography>
-                        </Box>
-                      )}
-                      {tile.type === 'Text & Query' && tile.config?.textRows?.length > 0 && (
-                        <Typography 
-                          variant="body2" 
-                          color="text.secondary"
-                          sx={{ 
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            display: '-webkit-box',
-                            maxHeight: '3em',
-                            // TypeScript-safe way to add vendor prefixes
-                            ...({
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical'
-                            } as React.CSSProperties)
-                          }}
-                        >
-                          {tile.config.textRows[0]?.content || 'Text content'}
-                        </Typography>
-                      )}
-                      {(!tile.config || 
-                        (tile.type === 'Text & Query' && (!tile.config.textRows || tile.config.textRows.length === 0)) ||
-                        (tile.type === 'Table' && !tile.config.tableConfig)) && (
-                        <Typography variant="body2" color="text.secondary">
-                          Click to view content
-                        </Typography>
-                      )}
-                    </Box>
-                  ) : (
-                    <Box sx={{ display: 'none' }}></Box>
-                  )}
-                </CardContent>
-                
-                {/* Footer - always visible */}
-                <Box 
-                  sx={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    px: 2, 
-                    py: 1,
-                    borderTop: '1px solid',
-                    borderColor: 'divider',
-                    bgcolor: 'background.default'
-                  }}
-                >
-                  <Typography variant="caption" color="text.secondary">
-                    {tile.connectionId ? 'Connected' : 'No connection'}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {expandedTileId === tile.id ? 'Click to collapse' : 'Click to expand'}
-                  </Typography>
-                </Box>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-
-      )}
-
-      {/* Menu component removed as we're now using inline visualization */}
-
-      {/* Create Tile Dialog */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} fullWidth maxWidth="sm">
-        <DialogTitle>Create New Tile</DialogTitle>
+          {/* Grid layout for tiles */}
+          {/* Add Tile Dialog */}
+      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} fullWidth>
+        <DialogTitle>Add New Tile</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             margin="dense"
-            label="Tile Name"
+            label="Title"
             fullWidth
-            variant="outlined"
             value={tileName}
             onChange={(e) => setTileName(e.target.value)}
             sx={{ mb: 2 }}
           />
           <TextField
             margin="dense"
-            label="Description"
+            label="Description (optional)"
             fullWidth
-            multiline
-            rows={2}
-            variant="outlined"
             value={tileDescription}
             onChange={(e) => setTileDescription(e.target.value)}
             sx={{ mb: 2 }}
           />
+          <TextField
+            select
+            margin="dense"
+            label="Type"
+            fullWidth
+            value={selectedTileType}
+            onChange={(e) => setSelectedTileType(e.target.value as 'Table' | 'Text & Query')}
+            sx={{ mb: 2 }}
+          >
+            <MenuItem value="Table">Table</MenuItem>
+            <MenuItem value="Text & Query">Text & Query</MenuItem>
+          </TextField>
           
-          <FormControl fullWidth sx={{ mt: 2 }} error={!selectedTileType}>
-            <InputLabel id="tile-type-label">Tile Type</InputLabel>
-            <Select
-              labelId="tile-type-label"
-              value={selectedTileType}
-              label="Tile Type"
-              onChange={(e: SelectChangeEvent) => setSelectedTileType(e.target.value as 'Table' | 'Text & Query')}
-            >
-              <MenuItem value="Table">Table</MenuItem>
-              <MenuItem value="Text & Query">Text & Query</MenuItem>
-            </Select>
-            {!selectedTileType && <FormHelperText>Required</FormHelperText>}
-          </FormControl>
-          
-          {/* Database connection selection - required for all tile types */}
-            <FormControl fullWidth sx={{ mt: 2 }} error={!selectedConnectionId}>
-              <InputLabel id="connection-label">Database Connection</InputLabel>
-              <Select
-                labelId="connection-label"
-                value={selectedConnectionId}
-                label="Database Connection"
-                onChange={(e: SelectChangeEvent) => setSelectedConnectionId(e.target.value)}
-              >
-                {availableConnections.map(connection => (
-                  <MenuItem key={connection.id} value={connection.id}>{connection.name}</MenuItem>
-                ))}
-              </Select>
-              {!selectedConnectionId && <FormHelperText>Required</FormHelperText>}
-            </FormControl>
-
+          <TextField
+            select
+            margin="dense"
+            label="Database Connection"
+            fullWidth
+            value={selectedConnectionId}
+            onChange={(e) => setSelectedConnectionId(e.target.value)}
+            required={selectedTileType === 'Table'}
+          >
+            {availableConnections.map((conn) => (
+              <MenuItem key={conn.id} value={conn.id}>
+                {conn.name}
+              </MenuItem>
+            ))}
+          </TextField>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button 
-            onClick={handleSaveTile} 
-            variant="contained" 
-            color="primary"
-            disabled={!tileName.trim()}
+          <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleAddTile}
+            disabled={!tileName.trim() || (selectedTileType === 'Table' && !selectedConnectionId)}
           >
-            Create
+            Add Tile
           </Button>
         </DialogActions>
       </Dialog>
+
+      {tiles.length > 0 ? (
+            <GridLayout
+              className="layout"
+              layout={layouts}
+              cols={12}
+              rowHeight={30}
+              width={1200}
+              onLayoutChange={handleLayoutChange}
+              isDraggable={hasEditPermission}
+              isResizable={hasEditPermission}
+              draggableHandle=".tile-drag-handle"
+              draggableCancel=".tile-actions, .tile-actions *, .MuiIconButton-root"
+            >
+              {tiles.map((tile) => (
+                <div key={tile.id} style={{ overflow: 'hidden' }}>
+                  <Card
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      position: 'relative',
+                      '&:hover .tile-actions': { opacity: 1 },
+                      overflow: 'visible', // Make sure the buttons aren't clipped
+                      border: '1px solid #ccc', // Add visible border for debugging
+                      '& *': { pointerEvents: 'auto' } // Enable pointer events for all children
+                    }}
+                  >
+                    <CardContent
+                      className="tile-drag-handle"
+                      onClick={(e) => {
+                        console.log('[DEBUG] CardContent clicked', e.currentTarget);
+                      }}
+                      sx={{
+                        pb: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: hasEditPermission ? 'move' : 'default',
+                        borderBottom: '1px solid',
+                        borderColor: 'divider',
+                        position: 'relative' // Add position context
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        {getTileIcon(tile.type)}
+                        <Typography variant="subtitle1" sx={{ ml: 1 }}>
+                          {tile.title || 'Untitled'}
+                        </Typography>
+                      </Box>
+                      
+                      {hasEditPermission && (
+                        <Box 
+                          className="tile-actions" 
+                          onClick={(e) => {
+                            console.log('[DEBUG] Tile actions Box clicked', e.currentTarget);
+                          }}
+                          sx={{ 
+                            opacity: { xs: 1, sm: 1 }, // Always visible for debugging
+                            transition: 'opacity 0.2s',
+                            '&:hover': { opacity: 1 },
+                            display: 'flex',
+                            gap: 1,
+                            position: 'absolute', // Use absolute positioning to ensure it's on top
+                            top: 4,
+                            right: 4,
+                            zIndex: 100, // Very high z-index to ensure visibility
+                            pointerEvents: 'auto' // Explicitly enable pointer events
+                          }}>
+                          <IconButton 
+                            size="small" 
+                            id={`edit-btn-${tile.id}`}
+                            onClick={(e) => {
+                              console.log('%c[EVENT] Edit IconButton clicked', 'background: #4CAF50; color: white;');
+                              console.log('[EVENT] Event details:', e.type, e.currentTarget);
+                              e.preventDefault(); // Prevent default behavior
+                              e.stopPropagation(); // Prevent card click
+                              // Add a timeout to see if there's something stopping immediate execution
+                              setTimeout(() => {
+                                console.log('[EVENT] Inside setTimeout for edit button');
+                                handleEditTile(tile);
+                              }, 0);
+                            }}
+                            sx={{ 
+                              bgcolor: 'rgba(0,0,0,0.04)', 
+                              '&:hover': { bgcolor: 'rgba(0,0,0,0.1)' },
+                              zIndex: 50, // Higher z-index to ensure button is clickable
+                              position: 'relative',
+                              pointerEvents: 'auto' // Explicitly enable pointer events
+                            }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton 
+                            size="small" 
+                            id={`delete-btn-${tile.id}`}
+                            onClick={(e) => {
+                              console.log('%c[EVENT] Delete IconButton clicked', 'background: #f44336; color: white;');
+                              console.log('[EVENT] Event details:', e.type, e.currentTarget);
+                              e.preventDefault(); // Prevent default behavior
+                              e.stopPropagation(); // Prevent card click
+                              // Add a timeout to see if there's something stopping immediate execution
+                              setTimeout(() => {
+                                console.log('[EVENT] Inside setTimeout for delete button');
+                                handleDeleteTile(tile);
+                              }, 0);
+                            }}
+                            sx={{ 
+                              bgcolor: 'rgba(0,0,0,0.04)', 
+                              '&:hover': { bgcolor: 'rgba(0,0,0,0.1)' },
+                              zIndex: 50, // Higher z-index to ensure button is clickable
+                              position: 'relative',
+                              pointerEvents: 'auto' // Explicitly enable pointer events
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      )}
+                    </CardContent>
+                    
+                    <CardContent sx={{ flexGrow: 1, overflow: 'auto' }}>
+                      {/* Render tile content based on type */}
+                      {tile.type === 'Table' && (
+                        <TableContainer component={Paper} sx={{ height: '100%' }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Table content would be rendered here
+                          </Typography>
+                        </TableContainer>
+                      )}
+                      
+                      {tile.type === 'Text & Query' && (
+                        <Box sx={{ height: '100%', overflow: 'auto' }}>
+                          {tile.textRows?.map((row, idx) => (
+                            <Box key={row.id || idx} sx={{ mb: 2 }}>
+                              {row.type === 'header' && (
+                                <Typography variant="h5">{row.content}</Typography>
+                              )}
+                              {row.type === 'subheader' && (
+                                <Typography variant="h6">{row.content}</Typography>
+                              )}
+                              {row.type === 'text' && (
+                                <Typography variant="body1">
+                                  {row.isQuery ? (
+                                    <Box component="span" sx={{ fontFamily: 'monospace', bgcolor: 'action.hover', p: 0.5, borderRadius: 1 }}>
+                                      {row.content}
+                                    </Box>
+                                  ) : (
+                                    row.content
+                                  )}
+                                </Typography>
+                              )}
+                            </Box>
+                          ))}
+                        </Box>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              ))}
+            </GridLayout>
+          ) : (
+            <Paper 
+              elevation={0} 
+              sx={{ 
+                p: 4, 
+                display: 'flex', 
+                flexDirection: 'column', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                height: '50vh',
+                border: '2px dashed',
+                borderColor: 'divider',
+                borderRadius: 2
+              }}
+            >
+              <Typography variant="h6" color="text.secondary" gutterBottom>
+                No Tiles Yet
+              </Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                Add tiles to build your dashboard.
+              </Typography>
+              {hasEditPermission && (
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={() => setOpenDialog(true)}
+                >
+                  Add First Tile
+                </Button>
+              )}
+            </Paper>
+          )}
+        </>
+      )}
       
-      {/* Tile Editor */}
+      {/* Tile Editor Dialog */}
       {openTileEditor && editingTile && (
-        <TileEditor 
+        <TileEditor
+          tile={editingTile as any}
+          dashboardId={dashboardId || ''}
           open={openTileEditor}
           onClose={() => setOpenTileEditor(false)}
-          tile={editingTile} 
-          dashboardId={dashboardId || ''}
-          onSave={async (updatedTileData) => {
+          onSave={async (updatedTile) => {
             try {
-              console.log('[DEBUG] TileEditor onSave - Received tile data:', JSON.stringify(updatedTileData, null, 2));
+              // Save the updated tile to the backend
+              await projectService.updateTile(updatedTile.id, updatedTile);
               
-              // Prepare update payload
-              const updatePayload: any = {
-                title: updatedTileData.title,
-                dashboardId: updatedTileData.dashboardId,
-                type: updatedTileData.type,
-                connectionId: updatedTileData.connectionId,
-                position: updatedTileData.position
-              };
+              // Refresh the tiles list
+              const updatedTiles = await projectService.getTilesByDashboardId(dashboardId || '');
+              const frontendTiles = updatedTiles.map((tile: any) => convertToTileData(tile));
+              setTiles(frontendTiles);
               
-              // Handle tile type-specific data
-              if (updatedTileData.type === 'Text & Query' && updatedTileData.content.textRows) {
-                console.log('[DEBUG] TileEditor onSave - Processing Text & Query tile with textRows:', 
-                  JSON.stringify(updatedTileData.content.textRows, null, 2));
-                
-                // For Text & Query tiles, extract textRows as a separate field
-                // The backend will create/update these in the text_rows table
-                updatePayload.textRows = updatedTileData.content.textRows.map(row => ({
-                  id: row.id, // Include ID if it exists for existing rows
-                  type: row.type || 'text',
-                  content: row.content, // Use 'content' which is what the TextRow model expects
-                  isQuery: row.isQuery || false
-                }));
-                
-                // Store textRows in content so it can be retrieved on the frontend
-                updatePayload.content = {
-                  textRows: updatedTileData.content.textRows
-                };
-                
-                // Also include in config for backward compatibility
-                updatePayload.config = {
-                  textRows: updatedTileData.content.textRows,
-                  uiType: 'text'
-                };
-                
-                console.log('[DEBUG] TileEditor onSave - Prepared textRows payload:', 
-                  JSON.stringify(updatePayload.textRows, null, 2));
-              } else if (updatedTileData.type === 'Table' && updatedTileData.content.tableConfig) {
-                // For Table tiles, keep using the config field
-                updatePayload.config = {
-                  tableConfig: updatedTileData.content.tableConfig,
-                  uiType: 'table'
-                };
-              }
-              
-              console.log('[DEBUG] TileEditor onSave - Final update payload:', JSON.stringify(updatePayload, null, 2));
-              
-              // Save the updated tile data to the backend
-              const updatedTile = await projectService.updateTile(updatedTileData.id, updatePayload);
-              console.log('[DEBUG] TileEditor onSave - Response from backend:', JSON.stringify(updatedTile, null, 2));
-              
-              // Refresh data to show the updated tiles
-              await fetchData();
+              // Close the editor
               setOpenTileEditor(false);
+              setError(null);
             } catch (error) {
               console.error('[ERROR] Error updating tile:', error);
               setError('Failed to update tile');

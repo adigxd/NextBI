@@ -311,7 +311,6 @@ const TileEditor: React.FC<TileEditorProps> = ({
         position: tile?.position || { x: 0, y: 0, w: 6, h: 4 },
         content: {
           // Include appropriate content based on tile type
-          ...(tile?.type === 'Text & Query' ? { textRows } : {}),
           ...(tile?.type === 'Table' ? { 
             tableConfig: {
               selectedTable,
@@ -320,6 +319,15 @@ const TileEditor: React.FC<TileEditorProps> = ({
           } : {})
         }
       };
+      
+      // For Text & Query tiles, explicitly add textRows at both locations to ensure they're preserved
+      if (tile?.type === 'Text & Query' && textRows.length > 0) {
+        // Add textRows to content for frontend consistency
+        updatedTile.content.textRows = textRows;
+        
+        // Add textRows at the root level for backend persistence
+        updatedTile.textRows = textRows;
+      }
       
       console.log('[DEBUG] TileEditor handleSave - Prepared tile data for saving:', JSON.stringify(updatedTile, null, 2));
       console.log('[DEBUG] TileEditor handleSave - Text rows count:', textRows.length);
