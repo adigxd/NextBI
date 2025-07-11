@@ -164,7 +164,7 @@ const QueryResultViewer: React.FC<QueryResultViewerProps> = ({
                 </Typography>
               </Grid>
               <Grid item xs={8}>
-                <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+                <Typography variant="body2" sx={{ wordBreak: 'break-word' }} component="div">
                   {formatValue(row[field.name])}
                 </Typography>
               </Grid>
