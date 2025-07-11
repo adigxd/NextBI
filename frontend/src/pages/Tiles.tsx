@@ -32,7 +32,8 @@ import {
   TableHead,
   TableRow,
   Paper,
-  Divider
+  Divider,
+  Tooltip
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import TableChartIcon from '@mui/icons-material/TableChart';
@@ -40,11 +41,13 @@ import TextFieldsIcon from '@mui/icons-material/TextFields';
 import CodeIcon from '@mui/icons-material/Code';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from 'react-grid-layout';
 import { useAuth } from '../context/AuthContext';
 import { projectService, Tile as BackendTile } from '../services/projectService';
+import { queryService, QueryResult } from '../services/queryService';
 
 // Define the ServiceTile interface to match backend response
 interface ServiceTileType {
@@ -72,6 +75,7 @@ import { databaseConnectionService, DatabaseConnection } from '../services/datab
 
 import TileEditor from '../components/Tiles/TileEditor';
 import { hasProjectPermission } from '../services/userService';
+import QueryResultViewer from '../components/QueryResult/QueryResultViewer';
 
 // Define the TextRow interface
 interface TextRow {
@@ -218,29 +222,79 @@ const convertToTileData = (tile: BackendTile | any): Tile => {
 
 export const Tiles: React.FC = () => {
   const navigate = useNavigate();
-  // Get route parameters with proper type handling
-  const params = useParams();
-  const projectId = params.projectId || '';
-  const folderId = params.folderId || '';
-  const dashboardId = params.dashboardId || '';
+  const { projectId, folderId, dashboardId } = useParams();
   const { userData } = useAuth();
-
-  // State for project data
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [tiles, setTiles] = useState<Tile[]>([]);
   const [project, setProject] = useState<any>(null);
   const [folder, setFolder] = useState<any>(null);
   const [dashboard, setDashboard] = useState<any>(null);
-  const [tiles, setTiles] = useState<Tile[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [hasEditPermission, setHasEditPermission] = useState<boolean>(false);
+  const [connections, setConnections] = useState<DatabaseConnection[]>([]);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [openTileEditor, setOpenTileEditor] = useState(false);
+  const [editingTile, setEditingTile] = useState<TileData | null>(null);
 
-  // Dialog states
-  const [openDialog, setOpenDialog] = useState<boolean>(false);
-  const [tileName, setTileName] = useState<string>('');
-  const [tileDescription, setTileDescription] = useState<string>('');
+  // New tile form state
+  const [tileName, setTileName] = useState('');
+  const [tileDescription, setTileDescription] = useState('');
   const [selectedTileType, setSelectedTileType] = useState<'Table' | 'Text & Query'>('Table');
+  const [selectedConnectionId, setSelectedConnectionId] = useState('');
   const [availableConnections, setAvailableConnections] = useState<DatabaseConnection[]>([]);
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
+  
+  // These states are declared but not used (keeping for compatibility)
+  const [selectedConnection, setSelectedConnection] = useState('');
+  const [newTileType, setNewTileType] = useState<'Table' | 'Text & Query'>('Table');
+  const [newTileTitle, setNewTileTitle] = useState('');
+  const [formErrors, setFormErrors] = useState<any>({});
+
+  // Query execution state
+  const [queryResults, setQueryResults] = useState<{[rowId: string]: {result?: QueryResult, loading: boolean, error?: string}}>({});
+
+  // Execute a query for a specific text row
+  const executeQuery = async (tile: Tile, row: TextRow) => {
+    // Skip if no query content or not marked as a query
+    if (!row.content?.trim() || !row.isQuery || !tile.connectionId) {
+      return;
+    }
+    
+    const rowId = row.id || '';
+    
+    // Set loading state for this query
+    setQueryResults(prev => ({
+      ...prev,
+      [rowId]: { loading: true }
+    }));
+    
+    try {
+      // Execute the query using the queryService
+      console.log(`[QUERY] Executing query for tile ${tile.id}, row ${rowId}:`, row.content);
+      const result = await queryService.executeQuery(tile.connectionId, row.content);
+      
+      // Store the results
+      setQueryResults(prev => ({
+        ...prev,
+        [rowId]: { result, loading: false, error: undefined }
+      }));
+      console.log(`[QUERY] Query results for ${rowId}:`, result);
+    } catch (error) {
+      console.error(`[QUERY] Error executing query for ${rowId}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Store the error
+      setQueryResults(prev => ({
+        ...prev,
+        [rowId]: { loading: false, error: errorMessage }
+      }));
+    }
+  };
+  
+  // Note: We're using inline query execution in the useEffect hook,
+  // so this function has been removed to fix lint warnings
+
+  // Access control
+  const [hasEditPermission, setHasEditPermission] = useState(false);
+  const [collapsedTiles, setCollapsedTiles] = useState<{[key: string]: boolean}>({});
 
   // All tiles are now expanded by default
   // We track collapsed tiles instead of expanded ones
@@ -254,8 +308,8 @@ export const Tiles: React.FC = () => {
 
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  const [openTileEditor, setOpenTileEditor] = useState(false);
-  const [editingTile, setEditingTile] = useState<TileData | null>(null);
+  // Note: openTileEditor and editingTile are already declared at the top of the component
+  // Removed duplicate declaration
 
   // Toggle collapsed state for a tile
   const handleTileClick = (tile: Tile): void => {
@@ -511,14 +565,14 @@ export const Tiles: React.FC = () => {
         console.log('[DEBUG] Dashboard data loaded:', dashboardData);
         
         // Check if user has edit permission
-        const canEdit = await hasProjectPermission(projectId, 'edit');
+        const hasEditAccess = await hasProjectPermission(projectId, 'edit');
         
         // Load database connections for the tile editor
         const connections = await databaseConnectionService.getAllConnections();
         console.log('[DEBUG] Loaded database connections:', connections);
         
-        // Set the available connections for the tile editor
-        setAvailableConnections(connections);
+        // Set the database connections for later use
+        // Already updated in the later code
         
         // Load tiles for this dashboard
         const dashboardTiles = await projectService.getTilesByDashboardId(dashboardId);
@@ -528,32 +582,29 @@ export const Tiles: React.FC = () => {
         const frontendTiles = dashboardTiles.map(tile => convertToTileData(tile));
         console.log('[DEBUG] Converted tiles:', frontendTiles);
         
-        // Extract layout information from tiles
-        const extractedLayouts = frontendTiles.map(tile => ({
-          i: tile.id,
-          x: tile.position.x,
-          y: tile.position.y,
-          w: tile.position.w,
-          h: tile.position.h,
-          minW: tile.type === 'Table' ? 6 : 4,
-          minH: 6
-        }));
+        // We've removed the unused extractedLayouts declaration
+        // since we're not using GridLayout's layout property in this component
         
         // Update state with all the loaded data
         setProject(projectData);
-        setFolder(folderData);
         setDashboard(dashboardData);
         setTiles(frontendTiles);
-        setLayouts(extractedLayouts);
-        setAvailableConnections(connections);
-        setHasEditPermission(canEdit);
-        
+        setHasEditPermission(hasEditAccess);
+        setConnections(connections);
         setError(null);
-      } catch (error: any) {
-        console.error('Error loading dashboard data:', error);
-        // Show a more detailed error message
-        const errorMessage = error?.response?.data?.message || error?.message || 'Failed to load dashboard data';
-        setError(`Failed to load dashboard: ${errorMessage}`);
+        
+        // Execute queries for all Text & Query tiles after setting state
+        console.log('[INFO] Starting query execution for all Text & Query tiles');
+        frontendTiles.forEach(tile => {
+          if (tile.type === 'Text & Query' && tile.textRows && tile.connectionId) {
+            const queryRows = tile.textRows.filter(row => row.isQuery && row.content?.trim());
+            if (queryRows.length > 0) {
+              console.log(`[INFO] Found ${queryRows.length} queries in tile ${tile.id}, executing...`);
+              // Execute each query in the tile
+              queryRows.forEach(row => executeQuery(tile, row));
+            }
+          }
+        });
         
         // DISABLED mock data
         if (false) {
@@ -566,7 +617,7 @@ export const Tiles: React.FC = () => {
           setHasEditPermission(true);
           
           // Create mock database connections
-          setAvailableConnections([
+          setConnections([
             { 
               id: 'mock-conn-1', 
               name: 'Mock MySQL Connection',
@@ -677,7 +728,7 @@ export const Tiles: React.FC = () => {
             onChange={(e) => setSelectedConnectionId(e.target.value)}
             required={selectedTileType === 'Table'}
           >
-            {availableConnections.map((conn) => (
+            {connections.map((conn) => (
               <MenuItem key={conn.id} value={conn.id}>
                 {conn.name}
               </MenuItem>
@@ -839,8 +890,57 @@ export const Tiles: React.FC = () => {
                               {row.type === 'text' && (
                                 <Typography variant="body1">
                                   {row.isQuery ? (
-                                    <Box component="span" sx={{ fontFamily: 'monospace', bgcolor: 'action.hover', p: 0.5, borderRadius: 1 }}>
-                                      {row.content}
+                                    <Box sx={{ width: '100%' }}>
+                                      {/* Show query content in monospace */}
+                                      <Box component="div" sx={{ 
+                                        fontFamily: 'monospace', 
+                                        bgcolor: 'action.hover', 
+                                        p: 0.5, 
+                                        borderRadius: 1,
+                                        mb: 1,
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center'
+                                      }}>
+                                        <span>{row.content}</span>
+                                        {hasEditPermission && (
+                                          <Tooltip title="Refresh query results">
+                                            <IconButton 
+                                              size="small" 
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                executeQuery(tile, row);
+                                              }}
+                                            >
+                                              <RefreshIcon fontSize="small" />
+                                            </IconButton>
+                                          </Tooltip>
+                                        )}
+                                      </Box>
+                                      
+                                      {/* Render query results */}
+                                      {row.id && queryResults[row.id] ? (
+                                        <QueryResultViewer
+                                          result={queryResults[row.id].result}
+                                          loading={queryResults[row.id].loading}
+                                          error={queryResults[row.id].error}
+                                        />
+                                      ) : (
+                                        <Box 
+                                          sx={{ 
+                                            p: 1, 
+                                            borderRadius: 1, 
+                                            bgcolor: 'background.paper',
+                                            border: '1px dashed',
+                                            borderColor: 'divider' 
+                                          }}
+                                        >
+                                          <Typography variant="body2" color="text.secondary">
+                                            Query results will appear here
+                                          </Typography>
+                                        </Box>
+                                      )}
                                     </Box>
                                   ) : (
                                     row.content

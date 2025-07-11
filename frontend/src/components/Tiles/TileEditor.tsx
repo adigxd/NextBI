@@ -244,6 +244,14 @@ const TileEditor: React.FC<TileEditorProps> = ({
   };
 
   const updateTextRowType = (id: string, type: 'header' | 'subheader' | 'text') => {
+    const targetRow = textRows.find(row => row.id === id);
+  
+    // If this is a query row, don't allow changing the type - it should stay as 'text'
+    if (targetRow?.isQuery) {
+      console.log(`[DEBUG] TileEditor updateTextRowType - Attempted to change query row ${id} type to ${type}, ignoring`);
+      return;
+    }
+  
     console.log(`[DEBUG] TileEditor updateTextRowType - Updating row ${id} with type:`, type);
     setTextRows(textRows.map(row => 
       row.id === id ? { ...row, type } : row
@@ -252,10 +260,20 @@ const TileEditor: React.FC<TileEditorProps> = ({
 
   const toggleQueryMode = (id: string) => {
     const targetRow = textRows.find(row => row.id === id);
-    console.log(`[DEBUG] TileEditor toggleQueryMode - Toggling query mode for row ${id} from ${targetRow?.isQuery} to ${!targetRow?.isQuery}`);
-    setTextRows(textRows.map(row => 
-      row.id === id ? { ...row, isQuery: !row.isQuery } : row
-    ));
+    const newIsQuery = !targetRow?.isQuery;
+    console.log(`[DEBUG] TileEditor toggleQueryMode - Toggling query mode for row ${id} from ${targetRow?.isQuery} to ${newIsQuery}`);
+    
+    setTextRows(textRows.map(row => {
+      if (row.id === id) {
+        // If switching to query mode, always set type to normal 'text'
+        if (newIsQuery) {
+          return { ...row, isQuery: true, type: 'text' };
+        } else {
+          return { ...row, isQuery: false };
+        }
+      }
+      return row;
+    }));
   };
 
   // Form validation
