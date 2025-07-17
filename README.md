@@ -1,4 +1,4 @@
-# 79BI - Data Dashboarding and Visualization Tool
+# NextBI - Data Dashboarding and Visualization Tool
 
 A powerful data visualization platform that enables users to connect to databases, create data models, and build customizable dashboards with various visualization tiles.
 
