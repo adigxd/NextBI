@@ -15,7 +15,7 @@ A powerful data visualization platform that enables users to connect to database
 ## Project Structure
 
 ```
-79BI/
+NextBI/
 ├── frontend/         # React + Vite frontend application
 ├── backend/          # Node.js API server
 └── README.md         # Project documentation
