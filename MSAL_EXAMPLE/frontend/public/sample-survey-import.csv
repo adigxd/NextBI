@@ -1,6 +1,0 @@
-questionText,questionType,options,isRequired
-What is your favorite color?,single-choice,Red|Blue|Green|Yellow|Purple,true
-Which programming languages do you use?,multiple-choice,JavaScript|Python|Java|C#|Go|Ruby,false
-Please provide your feedback,text,,false
-Tell us more about your experience with our product,text,,true
-What improvements would you suggest for our service?,text,,false
