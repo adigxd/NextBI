@@ -5,7 +5,7 @@ import sequelize from '../config/database';
 interface TileAttributes {
   id: string;
   title: string;
-  type: 'Text & Query' | 'Table'; // New limited tile types
+  type: 'Text & Query' | 'Pie Chart'; // Updated to remove Table
   connectionId: string; // Database connection ID (mandatory)
   content: Record<string, unknown>; // JSON content (text rows, table config, query results)
   position: Record<string, unknown>; // x, y, w, h coordinates
@@ -22,7 +22,7 @@ interface TileCreationAttributes extends Optional<TileAttributes, 'id' | 'conten
 class Tile extends Model<TileAttributes, TileCreationAttributes> implements TileAttributes {
   public id!: string;
   public title!: string;
-  public type!: 'Text & Query' | 'Table';
+  public type!: 'Text & Query' | 'Pie Chart';
   public connectionId!: string;
   public content!: Record<string, unknown>;
   public position!: Record<string, unknown>;
@@ -52,7 +52,7 @@ Tile.init({
     allowNull: false
   },
   type: {
-    type: DataTypes.ENUM('Text & Query', 'Table'),
+    type: DataTypes.ENUM('Text & Query', 'Pie Chart'),
     allowNull: false
   },
   connectionId: {

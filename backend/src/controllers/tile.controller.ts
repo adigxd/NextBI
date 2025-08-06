@@ -100,10 +100,10 @@ export const createTile = async (req: Request, res: Response): Promise<void> => 
     }
     
     // Validate tile type
-    if (!['Text & Query', 'Table'].includes(type)) {
+    if (!['Text & Query', 'Pie Chart'].includes(type)) {
       res.status(400).json({
         success: false,
-        message: 'Tile type must be Text & Query or Table'
+        message: 'Tile type must be Text & Query or Pie Chart'
       });
       return;
     }

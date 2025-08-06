@@ -11,7 +11,7 @@ export default {
   // Database
   DB_HOST: process.env.DB_HOST || 'localhost',
   DB_PORT: parseInt(process.env.DB_PORT || '5432', 10),
-  DB_NAME: process.env.DB_NAME || 'DBN_79BI',
+  DB_NAME: process.env.DB_NAME || 'DBN_NextBI',
   DB_USER: process.env.DB_USER || 'postgres',
   DB_PASS: process.env.DB_PASS || 'shared8752',
   

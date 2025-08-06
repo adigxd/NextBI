@@ -38,10 +38,16 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import TextFieldsIcon from '@mui/icons-material/TextFields';
+import DonutLargeIcon from '@mui/icons-material/DonutLarge';
 import CodeIcon from '@mui/icons-material/Code';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from 'chart.js';
+import { Pie } from 'react-chartjs-2';
+
+// Register Chart.js components
+ChartJS.register(ArcElement, ChartTooltip, Legend);
 
 import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from 'react-grid-layout';
@@ -54,7 +60,7 @@ interface ServiceTileType {
   id: string;
   title: string; // Changed from 'name' to 'title' to match backend response
   description?: string;
-  type: 'Table' | 'Text & Query'; // Updated to match frontend types
+  type: 'Text & Query' | 'Pie Chart'; // Updated to remove Table
   dashboardId: string;
   connectionId?: string;
   dataModelId?: string;
@@ -93,7 +99,7 @@ interface TileData {
   id: string;
   title: string;
   description?: string;
-  type: 'Table' | 'Text & Query';
+  type: 'Text & Query' | 'Pie Chart';
   dashboardId: string;
   connectionId: string;
   position: {
@@ -105,9 +111,11 @@ interface TileData {
   config?: any;
   content?: {
     textRows?: TextRow[];
-    tableConfig?: {
-      selectedTable: string;
-      columns: string[];
+    pieChartConfig?: {
+      dimensionQuery: string;
+      measureQuery: string;
+      dimensionLabel: string;
+      measureLabel: string;
     };
   };
 }
@@ -117,7 +125,7 @@ interface Tile {
   id: string;
   title: string; // Changed from 'name' to 'title' to match backend response
   description?: string;
-  type: 'Table' | 'Text & Query'; // Frontend types
+  type: 'Text & Query' | 'Pie Chart'; // Frontend types
   dashboardId: string;
   connectionId?: string;
   // Position is now required for dragging functionality
@@ -130,9 +138,11 @@ interface Tile {
   config?: any;
   content?: {
     textRows?: TextRow[];
-    tableConfig?: {
-      selectedTable: string;
-      columns: string[];
+    pieChartConfig?: {
+      dimensionQuery: string;
+      measureQuery: string;
+      dimensionLabel: string;
+      measureLabel: string;
     };
   };
   textRows?: TextRow[];
@@ -195,9 +205,11 @@ const convertToTileData = (tile: BackendTile | any): Tile => {
     description: tile.description || '',
     content: {
       textRows: textRows.length > 0 ? textRows : undefined,
-      tableConfig: frontendType === 'Table' ? {
-        selectedTable: tile.config?.tableConfig?.selectedTable || '',
-        columns: tile.config?.tableConfig?.columns || []
+      pieChartConfig: frontendType === 'Pie Chart' ? {
+        dimensionQuery: tile.content?.pieChartConfig?.dimensionQuery || tile.config?.pieChartConfig?.dimensionQuery || '',
+        measureQuery: tile.content?.pieChartConfig?.measureQuery || tile.config?.pieChartConfig?.measureQuery || '',
+        dimensionLabel: tile.content?.pieChartConfig?.dimensionLabel || tile.config?.pieChartConfig?.dimensionLabel || '',
+        measureLabel: tile.content?.pieChartConfig?.measureLabel || tile.config?.pieChartConfig?.measureLabel || ''
       } : undefined
     },
     dashboardId: tile.dashboardId || '',
@@ -238,18 +250,21 @@ export const Tiles: React.FC = () => {
   // New tile form state
   const [tileName, setTileName] = useState('');
   const [tileDescription, setTileDescription] = useState('');
-  const [selectedTileType, setSelectedTileType] = useState<'Table' | 'Text & Query'>('Table');
+  const [selectedTileType, setSelectedTileType] = useState<'Text & Query' | 'Pie Chart'>('Text & Query');
   const [selectedConnectionId, setSelectedConnectionId] = useState('');
   const [availableConnections, setAvailableConnections] = useState<DatabaseConnection[]>([]);
   
   // These states are declared but not used (keeping for compatibility)
   const [selectedConnection, setSelectedConnection] = useState('');
-  const [newTileType, setNewTileType] = useState<'Table' | 'Text & Query'>('Table');
+  const [newTileType, setNewTileType] = useState<'Text & Query'>('Text & Query');
   const [newTileTitle, setNewTileTitle] = useState('');
   const [formErrors, setFormErrors] = useState<any>({});
 
   // Query execution state
   const [queryResults, setQueryResults] = useState<{[rowId: string]: {result?: QueryResult, loading: boolean, error?: string}}>({});
+
+  // Pie chart data state
+  const [pieChartData, setPieChartData] = useState<{[tileId: string]: any[]}>({});
 
   // Execute a query for a specific text row
   const executeQuery = async (tile: Tile, row: TextRow) => {
@@ -286,6 +301,89 @@ export const Tiles: React.FC = () => {
         ...prev,
         [rowId]: { loading: false, error: errorMessage }
       }));
+    }
+  };
+
+  // Load pie chart data for pie chart tiles
+  const loadPieChartData = async (tile: Tile) => {
+    if (!tile.connectionId || !tile.content?.pieChartConfig) {
+      console.log('[DEBUG] loadPieChartData - Missing connectionId or pieChartConfig:', {
+        connectionId: tile.connectionId,
+        pieChartConfig: tile.content?.pieChartConfig
+      });
+      return;
+    }
+    
+    console.log('[DEBUG] loadPieChartData - Starting data load for tile:', tile.id);
+    console.log('[DEBUG] loadPieChartData - Pie chart config:', JSON.stringify(tile.content.pieChartConfig, null, 2));
+    
+    try {
+      const { dimensionQuery, measureQuery, dimensionLabel, measureLabel } = tile.content.pieChartConfig;
+      
+      console.log('[DEBUG] loadPieChartData - Executing queries:', {
+        dimensionQuery,
+        measureQuery,
+        dimensionLabel,
+        measureLabel
+      });
+      
+      // Execute both queries
+      console.log('[DEBUG] loadPieChartData - About to execute dimension query:', dimensionQuery);
+      console.log('[DEBUG] loadPieChartData - About to execute measure query:', measureQuery);
+      
+      const [dimensionResult, measureResult] = await Promise.all([
+        databaseConnectionService.executeQuery(tile.connectionId, dimensionQuery).catch(error => {
+          console.error('[ERROR] loadPieChartData - Dimension query failed:', error);
+          console.error('[ERROR] loadPieChartData - Error response:', error.response?.data);
+          throw error;
+        }),
+        databaseConnectionService.executeQuery(tile.connectionId, measureQuery).catch(error => {
+          console.error('[ERROR] loadPieChartData - Measure query failed:', error);
+          console.error('[ERROR] loadPieChartData - Error response:', error.response?.data);
+          throw error;
+        })
+      ]);
+      
+      console.log('[DEBUG] loadPieChartData - Raw query results:', {
+        dimensionResult: JSON.stringify(dimensionResult, null, 2),
+        measureResult: JSON.stringify(measureResult, null, 2)
+      });
+      
+      // Combine the results
+      const combinedData = dimensionResult.map((dimRow: any, index: number) => {
+        // Try to get dimension value using the actual column name, not the label
+        const dimensionValue = dimRow["Name"] || dimRow[dimensionLabel] || dimRow.dimension || `Category ${index + 1}`;
+        const measureValue = measureResult[index]?.["Score"] || measureResult[index]?.[measureLabel] || measureResult[index]?.measure || 0;
+        
+        console.log(`[DEBUG] loadPieChartData - Processing row ${index}:`, {
+          dimRow: JSON.stringify(dimRow, null, 2),
+          dimensionLabel,
+          dimensionValue,
+          measureRow: JSON.stringify(measureResult[index], null, 2),
+          measureLabel,
+          measureValue
+        });
+        
+        return {
+          dimension: dimensionValue,
+          measure: measureValue
+        };
+      });
+      
+      console.log('[DEBUG] loadPieChartData - Final combined data:', JSON.stringify(combinedData, null, 2));
+      
+      setPieChartData(prev => {
+        const newState = {
+          ...prev,
+          [tile.id]: combinedData
+        };
+        console.log('[DEBUG] loadPieChartData - Updated pie chart data state:', JSON.stringify(newState, null, 2));
+        return newState;
+      });
+      
+      console.log('[DEBUG] loadPieChartData - Data loaded successfully for tile:', tile.id);
+    } catch (error) {
+      console.error('[ERROR] loadPieChartData - Failed to load pie chart data:', error);
     }
   };
   
@@ -398,8 +496,8 @@ export const Tiles: React.FC = () => {
           minH = Math.max(6, Math.min(12, 4 + tile.content.textRows.length));
         }
         
-        // Table tiles need more width
-        if (tile.type === 'Table') {
+        // Pie Chart tiles need more width
+        if (tile.type === 'Pie Chart') {
           minW = 6;
         }
         
@@ -441,14 +539,14 @@ export const Tiles: React.FC = () => {
   };
 
   // Helper function to render the appropriate icon for each tile type
-  const getTileIcon = (type: 'Table' | 'Text & Query'): React.ReactNode => {
+  const getTileIcon = (type: 'Text & Query' | 'Pie Chart'): React.ReactNode => {
     switch (type) {
-      case 'Table':
-        return <TableChartIcon />;
       case 'Text & Query':
         return <TextFieldsIcon />;
+      case 'Pie Chart':
+        return <DonutLargeIcon />;
       default:
-        return <TableChartIcon />;
+        return <TextFieldsIcon />;
     }
   };
 
@@ -466,7 +564,7 @@ export const Tiles: React.FC = () => {
         position: {
           x: 0,
           y: 0,
-          w: selectedTileType === 'Table' ? 6 : 4,
+          w: selectedTileType === 'Pie Chart' ? 6 : 4,
           h: 6
         }
       };
@@ -485,7 +583,7 @@ export const Tiles: React.FC = () => {
         y: frontendTile.position.y,
         w: frontendTile.position.w,
         h: frontendTile.position.h,
-        minW: frontendTile.type === 'Table' ? 6 : 4,
+        minW: frontendTile.type === 'Pie Chart' ? 6 : 4,
         minH: 6
       }]);
       
@@ -604,6 +702,23 @@ export const Tiles: React.FC = () => {
               queryRows.forEach(row => executeQuery(tile, row));
             }
           }
+          
+          // Load pie chart data for pie chart tiles
+          if (tile.type === 'Pie Chart' && tile.connectionId) {
+            console.log(`[DEBUG] Dashboard Data Loading - Loading pie chart data for tile ${tile.id}`);
+            console.log(`[DEBUG] Dashboard Data Loading - Tile pie chart config:`, JSON.stringify(tile.content?.pieChartConfig, null, 2));
+            
+            // Show current configuration
+            if (tile.content?.pieChartConfig) {
+              console.log(`[DEBUG] Current Pie Chart Configuration for tile ${tile.id}:`);
+              console.log(`  - Dimension Query: "${tile.content.pieChartConfig.dimensionQuery}"`);
+              console.log(`  - Measure Query: "${tile.content.pieChartConfig.measureQuery}"`);
+              console.log(`  - Dimension Label: "${tile.content.pieChartConfig.dimensionLabel}"`);
+              console.log(`  - Measure Label: "${tile.content.pieChartConfig.measureLabel}"`);
+            }
+            
+            loadPieChartData(tile);
+          }
         });
         
         // DISABLED mock data
@@ -674,7 +789,7 @@ export const Tiles: React.FC = () => {
                   // Reset form fields
                   setTileName('');
                   setTileDescription('');
-                  setSelectedTileType('Table');
+                  setSelectedTileType('Text & Query');
                   setSelectedConnectionId('');
                   setOpenDialog(true);
                 }}
@@ -712,11 +827,11 @@ export const Tiles: React.FC = () => {
             label="Type"
             fullWidth
             value={selectedTileType}
-            onChange={(e) => setSelectedTileType(e.target.value as 'Table' | 'Text & Query')}
+            onChange={(e) => setSelectedTileType(e.target.value as 'Text & Query' | 'Pie Chart')}
             sx={{ mb: 2 }}
           >
-            <MenuItem value="Table">Table</MenuItem>
             <MenuItem value="Text & Query">Text & Query</MenuItem>
+            <MenuItem value="Pie Chart">Pie Chart</MenuItem>
           </TextField>
           
           <TextField
@@ -726,7 +841,7 @@ export const Tiles: React.FC = () => {
             fullWidth
             value={selectedConnectionId}
             onChange={(e) => setSelectedConnectionId(e.target.value)}
-            required={selectedTileType === 'Table'}
+            required={selectedTileType === 'Pie Chart'}
           >
             {connections.map((conn) => (
               <MenuItem key={conn.id} value={conn.id}>
@@ -740,7 +855,7 @@ export const Tiles: React.FC = () => {
           <Button
             variant="contained"
             onClick={handleAddTile}
-            disabled={!tileName.trim() || (selectedTileType === 'Table' && !selectedConnectionId)}
+            disabled={!tileName.trim() || (selectedTileType === 'Pie Chart' && !selectedConnectionId)}
           >
             Add Tile
           </Button>
@@ -815,6 +930,27 @@ export const Tiles: React.FC = () => {
                             zIndex: 100, // Very high z-index to ensure visibility
                             pointerEvents: 'auto' // Explicitly enable pointer events
                           }}>
+                          {tile.type === 'Pie Chart' && (
+                            <Tooltip title="Refresh pie chart data">
+                              <IconButton 
+                                size="small" 
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  loadPieChartData(tile);
+                                }}
+                                sx={{ 
+                                  bgcolor: 'rgba(0,0,0,0.04)', 
+                                  '&:hover': { bgcolor: 'rgba(0,0,0,0.1)' },
+                                  zIndex: 50,
+                                  position: 'relative',
+                                  pointerEvents: 'auto'
+                                }}
+                              >
+                                <RefreshIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                           <IconButton 
                             size="small" 
                             id={`edit-btn-${tile.id}`}
@@ -869,12 +1005,78 @@ export const Tiles: React.FC = () => {
                     
                     <CardContent sx={{ flexGrow: 1, overflow: 'auto' }}>
                       {/* Render tile content based on type */}
-                      {tile.type === 'Table' && (
-                        <TableContainer component={Paper} sx={{ height: '100%' }}>
-                          <Typography variant="body2" color="text.secondary">
-                            Table content would be rendered here
-                          </Typography>
-                        </TableContainer>
+                      {tile.type === 'Pie Chart' && (
+                        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                          {(() => {
+                            console.log('[DEBUG] Pie Chart Rendering - Tile ID:', tile.id);
+                            console.log('[DEBUG] Pie Chart Rendering - Pie chart data for this tile:', pieChartData[tile.id]);
+                            console.log('[DEBUG] Pie Chart Rendering - All pie chart data:', pieChartData);
+                            
+                            if (pieChartData[tile.id] && pieChartData[tile.id].length > 0) {
+                              const chartData = {
+                                labels: pieChartData[tile.id].map((item: any) => item.dimension),
+                                datasets: [{
+                                  data: pieChartData[tile.id].map((item: any) => item.measure),
+                                  backgroundColor: [
+                                    '#FF6384',
+                                    '#36A2EB',
+                                    '#FFCE56',
+                                    '#4BC0C0',
+                                    '#9966FF',
+                                    '#FF9F40',
+                                    '#FF6384',
+                                    '#C9CBCF'
+                                  ],
+                                  borderWidth: 2,
+                                  borderColor: '#fff'
+                                }]
+                              };
+                              
+                              console.log('[DEBUG] Pie Chart Rendering - Chart data being passed to Chart.js:', JSON.stringify(chartData, null, 2));
+                              
+                              return (
+                                <Box sx={{ height: '100%', minHeight: 300 }}>
+                                  <Pie 
+                                    data={chartData}
+                                    options={{
+                                      responsive: true,
+                                      maintainAspectRatio: false,
+                                      plugins: {
+                                        legend: {
+                                          position: 'bottom' as const,
+                                          labels: {
+                                            padding: 20,
+                                            usePointStyle: true
+                                          }
+                                        },
+                                        tooltip: {
+                                          callbacks: {
+                                            label: function(context: any) {
+                                              const label = context.label || '';
+                                              const value = context.parsed;
+                                              return `${label}: ${value}`;
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }}
+                                  />
+                                </Box>
+                              );
+                            } else {
+                              console.log('[DEBUG] Pie Chart Rendering - No data available, showing placeholder');
+                              return (
+                                <Box sx={{ p: 3, textAlign: 'center' }}>
+                                  <Typography color="text.secondary">
+                                    {tile.content?.pieChartConfig?.dimensionQuery && tile.content?.pieChartConfig?.measureQuery
+                                      ? 'Loading pie chart data...'
+                                      : 'Pie chart not configured. Click edit to set up dimension and measure queries.'}
+                                  </Typography>
+                                </Box>
+                              );
+                            }
+                          })()}
+                        </Box>
                       )}
                       
                       {tile.type === 'Text & Query' && (

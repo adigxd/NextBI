@@ -129,10 +129,22 @@ export const databaseConnectionService = {
   async getConnectionsByProjectId(projectId: string): Promise<DatabaseConnection[]> {
     try {
       const authHeaders = await getAuthHeaders();
-      const response = await axios.get(`${API_URL}?projectId=${projectId}`, { headers: authHeaders });
+      const response = await axios.get(`${API_URL}/by-project/${projectId}`, { headers: authHeaders });
       return response.data.data;
     } catch (error) {
       console.error(`Error fetching connections for project ${projectId}:`, error);
+      throw error;
+    }
+  },
+
+  // Execute SQL query
+  async executeQuery(connectionId: string, query: string): Promise<any[]> {
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await axios.post(`${API_URL}/${connectionId}/query`, { query }, { headers: authHeaders });
+      return response.data.data;
+    } catch (error) {
+      console.error(`Error executing query on connection ${connectionId}:`, error);
       throw error;
     }
   }

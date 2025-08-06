@@ -63,7 +63,7 @@ const Navbar = ({ toggleSidebar }: NavbarProps) => {
         </IconButton>
         
         <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-          79BI
+          NextBI
         </Typography>
         
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

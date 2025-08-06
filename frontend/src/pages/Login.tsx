@@ -39,7 +39,7 @@ const Login = () => {
           }}
         >
           <Typography variant="h4" component="h1" gutterBottom>
-            79BI
+            NextBI
           </Typography>
           <Typography variant="h6" color="textSecondary" gutterBottom>
             Data Dashboarding & Visualization

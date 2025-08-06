@@ -87,7 +87,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Update user state with the user info
         setUserData(loginResult.user);
         setIsAuthenticated(true);
-        localStorage.setItem('79bi_auth_method', 'msal');
+        localStorage.setItem('nextbi_auth_method', 'msal');
         setError(null);
         console.log('Token exchange successful', loginResult.user);
         return loginResult.user;
@@ -160,7 +160,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       // Set flag to indicate login was attempted
       localStorage.setItem('loginAttempted', 'true');
-      localStorage.setItem('79bi_auth_method', 'msal');
+      localStorage.setItem('nextbi_auth_method', 'msal');
 
       // Use loginRedirect for better compatibility with SPAs
       console.log('Starting MSAL login redirect with request:', loginRequest);
@@ -179,13 +179,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Logout function
   const logout = () => {
     try {
-      const currentAuthMethod = localStorage.getItem('79bi_auth_method');
+      const currentAuthMethod = localStorage.getItem('nextbi_auth_method');
       console.log(`Logging out with auth method: ${currentAuthMethod || 'unknown'}`);
       
       // Clear all authentication data
       localStorage.removeItem('loginAttempted');
       clearAuthData();
-      localStorage.removeItem('79bi_auth_method');
+      localStorage.removeItem('nextbi_auth_method');
       
       // Reset state
       setIsAuthenticated(false);
@@ -205,7 +205,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.error('Logout error:', err);
       // Even if logout fails, ensure localStorage and state are cleared
       clearAuthData();
-      localStorage.removeItem('79bi_auth_method');
+      localStorage.removeItem('nextbi_auth_method');
       localStorage.removeItem('loginAttempted');
       setIsAuthenticated(false);
       setUserData(null);

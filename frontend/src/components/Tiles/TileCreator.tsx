@@ -18,6 +18,7 @@ import {
 import LoadingButton from '@mui/lab/LoadingButton';
 import TextFieldsIcon from '@mui/icons-material/TextFields';
 import TableChartIcon from '@mui/icons-material/TableChart';
+import DonutLargeIcon from '@mui/icons-material/DonutLarge';
 import { databaseConnectionService, DatabaseConnection } from '../../services/databaseConnectionService';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -30,7 +31,7 @@ interface TileCreatorProps {
 
 export interface CreateTileDto {
   title: string;
-  type: 'Text & Query' | 'Table';
+  type: 'Text & Query' | 'Table' | 'Pie Chart';
   connectionId: string;
   dashboardId: string;
   content: {
@@ -38,6 +39,12 @@ export interface CreateTileDto {
     tableConfig: {
       selectedTable: string;
       columns: any[];
+    };
+    pieChartConfig?: {
+      dimensionQuery: string;
+      measureQuery: string;
+      dimensionLabel: string;
+      measureLabel: string;
     };
   };
   position: {
@@ -56,7 +63,7 @@ const TileCreator: React.FC<TileCreatorProps> = ({
 }) => {
   // State for tile data
   const [title, setTitle] = useState('');
-  const [tileType, setTileType] = useState<'Text & Query' | 'Table'>('Text & Query');
+  const [tileType, setTileType] = useState<'Text & Query' | 'Table' | 'Pie Chart'>('Text & Query');
   const [connectionId, setConnectionId] = useState('');
   
   // State for database connections
@@ -109,13 +116,19 @@ const TileCreator: React.FC<TileCreatorProps> = ({
         tableConfig: {
           selectedTable: '',
           columns: []
-        }
+        },
+        pieChartConfig: tileType === 'Pie Chart' ? {
+          dimensionQuery: '',
+          measureQuery: '',
+          dimensionLabel: '',
+          measureLabel: ''
+        } : undefined
       },
       position: {
         x: 0, 
         y: 0, 
         w: 6, 
-        h: tileType === 'Table' ? 8 : 6 
+        h: tileType === 'Table' ? 8 : tileType === 'Pie Chart' ? 8 : 6 
       }
     };
     
@@ -169,7 +182,7 @@ const TileCreator: React.FC<TileCreatorProps> = ({
           <Grid item xs={12}>
             <Typography variant="subtitle1" gutterBottom>Tile Type</Typography>
             <Grid container spacing={2}>
-              <Grid item xs={6}>
+              <Grid item xs={12} sm={4}>
                 <Box
                   onClick={() => setTileType('Text & Query')}
                   sx={{
@@ -186,7 +199,7 @@ const TileCreator: React.FC<TileCreatorProps> = ({
                   <Typography variant="body1" sx={{ mt: 1 }}>Text & Query</Typography>
                 </Box>
               </Grid>
-              <Grid item xs={6}>
+              <Grid item xs={12} sm={4}>
                 <Box
                   onClick={() => setTileType('Table')}
                   sx={{
@@ -201,6 +214,24 @@ const TileCreator: React.FC<TileCreatorProps> = ({
                 >
                   <TableChartIcon sx={{ fontSize: 40, color: tileType === 'Table' ? 'primary.main' : 'action.active' }} />
                   <Typography variant="body1" sx={{ mt: 1 }}>Table</Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Box
+                  onClick={() => setTileType('Pie Chart')}
+                  sx={{
+                    border: '2px solid',
+                    borderColor: tileType === 'Pie Chart' ? 'primary.main' : 'error.main',
+                    borderRadius: 1,
+                    p: 2,
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    backgroundColor: tileType === 'Pie Chart' ? 'action.selected' : 'error.lightest',
+                    minHeight: 100
+                  }}
+                >
+                  <DonutLargeIcon sx={{ fontSize: 40, color: tileType === 'Pie Chart' ? 'primary.main' : 'error.main' }} />
+                  <Typography variant="body1" sx={{ mt: 1, fontWeight: 'bold' }}>Pie Chart</Typography>
                 </Box>
               </Grid>
             </Grid>
@@ -238,15 +269,14 @@ const TileCreator: React.FC<TileCreatorProps> = ({
         <Button onClick={handleClose} color="inherit">
           Cancel
         </Button>
-        <LoadingButton
+        <Button
           onClick={handleCreateTile}
           variant="contained"
           color="primary"
-          loading={saving}
           disabled={!isValid() || saving}
         >
-          Create Tile
-        </LoadingButton>
+          {saving ? 'Creating...' : 'Create Tile'}
+        </Button>
       </DialogActions>
     </Dialog>
   );

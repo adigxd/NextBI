@@ -4,8 +4,8 @@ import axios from 'axios';
 const API_URL = 'http://localhost:3000';
 
 // Token storage key
-const TOKEN_KEY = '79bi_auth_token';
-const USER_KEY = '79bi_user_data';
+const TOKEN_KEY = 'nextbi_auth_token';
+const USER_KEY = 'nextbi_user_data';
 
 /**
  * Exchange Azure AD user info for backend JWT token

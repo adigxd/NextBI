@@ -36,7 +36,7 @@ export const loginWithAzure = async (account: AccountInfo): Promise<any> => {
     setToken(token);
     
     // Set auth method in localStorage
-    localStorage.setItem('79bi_auth_method', 'msal');
+    localStorage.setItem('nextbi_auth_method', 'msal');
     console.log('Auth method set in localStorage');
     
     return {
@@ -62,7 +62,7 @@ export const getStoredSession = () => {
   
   return {
     token,
-    authMethod: localStorage.getItem('79bi_auth_method') || 'msal'
+    authMethod: localStorage.getItem('nextbi_auth_method') || 'msal'
   };
 };
 
@@ -71,7 +71,7 @@ export const getStoredSession = () => {
  */
 export const logout = (): void => {
   clearAuthData();
-  localStorage.removeItem('79bi_auth_method');
+  localStorage.removeItem('nextbi_auth_method');
 };
 
 /**

@@ -30,16 +30,9 @@ import TitleIcon from '@mui/icons-material/Title';
 import SubtitlesIcon from '@mui/icons-material/Subtitles';
 import TextFieldsIcon from '@mui/icons-material/TextFields';
 import CodeIcon from '@mui/icons-material/Code';
-import TableChartIcon from '@mui/icons-material/TableChart';
+import PieChartIcon from '@mui/icons-material/PieChart';
 import { v4 as uuidv4 } from 'uuid';
 import { databaseConnectionService } from '../../services/databaseConnectionService';
-
-// Extend the databaseConnectionService interface temporarily
-declare module '../../services/databaseConnectionService' {
-  interface DatabaseConnectionService {
-    getDatabaseSchema(connectionId: string): Promise<{ tables: DatabaseTable[] }>;
-  }
-}
 
 // Define the text row interface for Text & Query tiles
 interface TextRow {
@@ -53,14 +46,16 @@ interface TextRow {
 export interface TileData {
   id: string;
   title: string;
-  type: 'Text & Query' | 'Table';
+  type: 'Text & Query' | 'Pie Chart';
   connectionId: string; // Required for all tile types
   dashboardId: string;
   content: {
     textRows?: TextRow[];
-    tableConfig?: {
-      selectedTable: string;
-      columns: string[];
+    pieChartConfig?: {
+      dimensionQuery: string;
+      measureQuery: string;
+      dimensionLabel: string;
+      measureLabel: string;
     };
   };
   position: {
@@ -86,12 +81,6 @@ interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
   value: number;
-}
-
-// Database schema structure
-interface DatabaseTable {
-  name: string;
-  columns: { name: string; type: string }[];
 }
 
 // TabPanel component for managing editor tabs
@@ -129,12 +118,12 @@ const TileEditor: React.FC<TileEditorProps> = ({
   const [textRows, setTextRows] = useState<TextRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  
-  // Database schema state
-  const [tables, setTables] = useState<DatabaseTable[]>([]);
-  const [selectedTable, setSelectedTable] = useState('');
-  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
-  const [loadingSchema, setLoadingSchema] = useState(false);
+
+  // Pie chart state
+  const [dimensionQuery, setDimensionQuery] = useState('');
+  const [measureQuery, setMeasureQuery] = useState('');
+  const [dimensionLabel, setDimensionLabel] = useState('');
+  const [measureLabel, setMeasureLabel] = useState('');
 
   // Initialize form data when editing an existing tile
   useEffect(() => {
@@ -151,18 +140,21 @@ const TileEditor: React.FC<TileEditorProps> = ({
           setTextRows(tile.content.textRows || []);
         }
         
-        // Set table configuration for Table tiles
-        if (tile.type === 'Table') {
-          if (tile.content.tableConfig) {
-            setSelectedTable(tile.content.tableConfig.selectedTable || '');
-            setSelectedColumns(tile.content.tableConfig.columns || []);
+        // Set pie chart configuration for Pie Chart tiles
+        if (tile.type === 'Pie Chart') {
+          if (tile.content.pieChartConfig) {
+            setDimensionQuery(tile.content.pieChartConfig.dimensionQuery || '');
+            setMeasureQuery(tile.content.pieChartConfig.measureQuery || '');
+            setDimensionLabel(tile.content.pieChartConfig.dimensionLabel || '');
+            setMeasureLabel(tile.content.pieChartConfig.measureLabel || '');
           }
         }
         
         // Load database schema on open if we have a connectionId
         // Connection ID is required for all tile types
         if (tile.connectionId) {
-          loadDatabaseSchema();
+          // Schema loading is only needed for table tiles, which we've removed
+          console.log('[DEBUG] TileEditor - Database connection available:', tile.connectionId);
         } else {
           setError('Database connection is required but not provided');
         }
@@ -170,54 +162,13 @@ const TileEditor: React.FC<TileEditorProps> = ({
         // Initialize with defaults for a new tile
         setTitle('');
         setTextRows([]);
-        setSelectedTable('');
-        setSelectedColumns([]);
       }
     }
   }, [tile, open]);
   
-  // Load database schema for the connected database
-  const loadDatabaseSchema = async () => {
-    if (!tile?.connectionId) {
-      setError('Database connection is required');
-      return;
-    }
-    
-    setLoadingSchema(true);
-    setError('');
-    
-    try {
-      const schemaData = await databaseConnectionService.getDatabaseSchema(tile.connectionId);
-      setTables(schemaData.tables || []);
-      setLoadingSchema(false);
-    } catch (err) {
-      console.error('Error loading database schema:', err);
-      setError('Failed to load database schema');
-      setLoadingSchema(false);
-    }
-  };
-
   // Handle tab change
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
-  };
-
-  // Handle table selection for Table tiles
-  const handleTableChange = (event: SelectChangeEvent) => {
-    const tableName = event.target.value;
-    setSelectedTable(tableName);
-    setSelectedColumns([]); // Reset column selection when table changes
-  };
-
-  // Handle column selection for Table tiles
-  const handleColumnToggle = (columnName: string) => {
-    setSelectedColumns(prev => {
-      if (prev.includes(columnName)) {
-        return prev.filter(col => col !== columnName);
-      } else {
-        return [...prev, columnName];
-      }
-    });
   };
 
   // Text row management functions for Text & Query tiles
@@ -284,7 +235,7 @@ const TileEditor: React.FC<TileEditorProps> = ({
       return false;
     }
     
-    if (tile?.type === 'Table' && (!selectedTable || selectedColumns.length === 0)) {
+    if (tile?.type === 'Pie Chart' && (!dimensionQuery.trim() || !measureQuery.trim())) {
       return false;
     }
     
@@ -297,8 +248,6 @@ const TileEditor: React.FC<TileEditorProps> = ({
     console.log('[DEBUG] TileEditor handleSave - Current state:', {
       title,
       textRows: JSON.stringify(textRows, null, 2),
-      selectedTable,
-      selectedColumns,
       tileId: tile?.id,
       tileType: tile?.type
     });
@@ -323,28 +272,27 @@ const TileEditor: React.FC<TileEditorProps> = ({
       const updatedTile: TileData = {
         id: tile?.id || uuidv4(),
         title: title.trim(),
-        type: tile?.type || 'Table', // Default to Table if not specified
+        type: tile?.type || 'Text & Query', // Default to Text & Query if not specified
         dashboardId: tile?.dashboardId || '',
         connectionId: tile.connectionId, // Use the existing connection ID, cannot be changed
         position: tile?.position || { x: 0, y: 0, w: 6, h: 4 },
-        content: {
-          // Include appropriate content based on tile type
-          ...(tile?.type === 'Table' ? { 
-            tableConfig: {
-              selectedTable,
-              columns: selectedColumns
-            } 
-          } : {})
-        }
+        content: {}
       };
       
       // For Text & Query tiles, explicitly add textRows at both locations to ensure they're preserved
       if (tile?.type === 'Text & Query' && textRows.length > 0) {
         // Add textRows to content for frontend consistency
         updatedTile.content.textRows = textRows;
-        
-        // Add textRows at the root level for backend persistence
-        updatedTile.textRows = textRows;
+      }
+      
+      // For Pie Chart tiles, add pie chart configuration
+      if (tile?.type === 'Pie Chart') {
+        updatedTile.content.pieChartConfig = {
+          dimensionQuery,
+          measureQuery,
+          dimensionLabel,
+          measureLabel
+        };
       }
       
       console.log('[DEBUG] TileEditor handleSave - Prepared tile data for saving:', JSON.stringify(updatedTile, null, 2));
@@ -535,53 +483,74 @@ const TileEditor: React.FC<TileEditorProps> = ({
             </Grid>
           )}
           
-          {tile?.type === 'Table' && (
+          {tile?.type === 'Pie Chart' && (
             <Grid container spacing={3}>
               <Grid item xs={12}>
-                <FormControl fullWidth error={!selectedTable}>
-                  <InputLabel>Select Table</InputLabel>
-                  <Select
-                    value={selectedTable}
-                    label="Select Table"
-                    onChange={handleTableChange}
-                    disabled={loadingSchema}
-                  >
-                    {tables.map((table) => (
-                      <MenuItem key={table.name} value={table.name}>
-                        {table.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                <Typography variant="h6" gutterBottom>Dimension Query</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  SQL query to get the dimension values (categories/labels for the pie chart)
+                </Typography>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={4}
+                  label="Dimension SQL Query"
+                  value={dimensionQuery}
+                  onChange={(e) => setDimensionQuery(e.target.value)}
+                  placeholder="SELECT category FROM sales GROUP BY category"
+                  InputProps={{
+                    startAdornment: <CodeIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                  }}
+                />
               </Grid>
               
-              {selectedTable && (
-                <Grid item xs={12}>
-                  <Typography variant="subtitle1" gutterBottom>Select Columns</Typography>
-                  <Paper variant="outlined" sx={{ p: 2, maxHeight: 300, overflow: 'auto' }}>
-                    {tables
-                      .find(t => t.name === selectedTable)?.columns
-                      .map((column) => (
-                        <FormControlLabel
-                          key={column.name}
-                          control={
-                            <Switch
-                              checked={selectedColumns.includes(column.name)}
-                              onChange={() => handleColumnToggle(column.name)}
-                            />
-                          }
-                          label={`${column.name} (${column.type})`}
-                          sx={{ display: 'block', mb: 1 }}
-                        />
-                      ))}
-                  </Paper>
-                </Grid>
-              )}
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom>Measure Query</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  SQL query to get the measure values (numbers for the pie chart slices)
+                </Typography>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={4}
+                  label="Measure SQL Query"
+                  value={measureQuery}
+                  onChange={(e) => setMeasureQuery(e.target.value)}
+                  placeholder="SELECT SUM(amount) FROM sales GROUP BY category"
+                  InputProps={{
+                    startAdornment: <CodeIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                  }}
+                />
+              </Grid>
               
-              {!selectedTable && (
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Dimension Column Label"
+                  value={dimensionLabel}
+                  onChange={(e) => setDimensionLabel(e.target.value)}
+                  placeholder="category"
+                  helperText="Column name from dimension query result"
+                />
+              </Grid>
+              
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Measure Column Label"
+                  value={measureLabel}
+                  onChange={(e) => setMeasureLabel(e.target.value)}
+                  placeholder="sum"
+                  helperText="Column name from measure query result"
+                />
+              </Grid>
+              
+              {(!dimensionQuery || !measureQuery) && (
                 <Grid item xs={12}>
                   <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <Typography color="text.secondary">Select a table to display</Typography>
+                    <Typography color="text.secondary">
+                      Enter both dimension and measure queries to configure the pie chart
+                    </Typography>
                   </Box>
                 </Grid>
               )}
@@ -630,22 +599,25 @@ const TileEditor: React.FC<TileEditorProps> = ({
             </Paper>
           )}
           
-          {tile && tile.type === 'Table' && (
+          {tile && tile.type === 'Pie Chart' && (
             <Paper variant="outlined" sx={{ p: 3, minHeight: 200 }}>
-              {selectedTable && selectedColumns.length > 0 ? (
+              {dimensionQuery && measureQuery ? (
                 <Box>
-                  <Typography variant="subtitle1" gutterBottom>Table Preview</Typography>
-                  <TableChartIcon sx={{ fontSize: 60, color: 'action.active', display: 'block', mx: 'auto', my: 2 }} />
+                  <Typography variant="subtitle1" gutterBottom>Pie Chart Preview</Typography>
+                  <PieChartIcon sx={{ fontSize: 60, color: 'action.active', display: 'block', mx: 'auto', my: 2 }} />
                   <Typography variant="body2" align="center">
-                    Displaying table: <b>{selectedTable}</b>
+                    Dimension Query: <b>{dimensionQuery.substring(0, 50)}{dimensionQuery.length > 50 ? '...' : ''}</b>
                   </Typography>
                   <Typography variant="body2" align="center" sx={{ mt: 1 }}>
-                    Selected columns: <b>{selectedColumns.join(', ')}</b>
+                    Measure Query: <b>{measureQuery.substring(0, 50)}{measureQuery.length > 50 ? '...' : ''}</b>
+                  </Typography>
+                  <Typography variant="body2" align="center" sx={{ mt: 1 }}>
+                    Labels: <b>{dimensionLabel || 'Not set'}</b> | Values: <b>{measureLabel || 'Not set'}</b>
                   </Typography>
                 </Box>
               ) : (
                 <Typography color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                  No table or columns selected. Configure your table in the Content tab.
+                  Configure dimension and measure queries in the Content tab to see preview.
                 </Typography>
               )}
             </Paper>

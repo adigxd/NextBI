@@ -456,3 +456,73 @@ export const getDatabaseSchema = async (req: Request, res: Response): Promise<vo
     });
   }
 };
+
+/**
+ * Execute SQL query on database connection
+ */
+export const executeQuery = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { query } = req.body;
+    
+    if (!query) {
+      res.status(400).json({
+        success: false,
+        message: 'Query is required'
+      });
+      return;
+    }
+    
+    // Get database connection
+    const connection = await DatabaseConnection.findByPk(id);
+    
+    if (!connection) {
+      res.status(404).json({
+        success: false,
+        message: 'Database connection not found'
+      });
+      return;
+    }
+    
+    // Create connection pool
+    const pool = new Pool({
+      host: connection.host,
+      port: connection.port,
+      database: connection.database,
+      user: connection.username,
+      password: connection.password,
+      ssl: connection.ssl ? { rejectUnauthorized: false } : false
+    });
+    
+    try {
+      // Execute query
+      const result = await pool.query(query);
+      
+      // Close the pool
+      await pool.end();
+      
+      res.status(200).json({
+        success: true,
+        data: result.rows
+      });
+      
+    } catch (queryError: any) {
+      // Close the pool on error
+      await pool.end();
+      
+      logger.error('Query execution error:', queryError);
+      res.status(400).json({
+        success: false,
+        message: 'Query execution failed',
+        error: queryError.message
+      });
+    }
+    
+  } catch (error) {
+    logger.error('Execute query error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to execute query'
+    });
+  }
+};

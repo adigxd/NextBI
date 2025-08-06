@@ -55,7 +55,7 @@ export interface Tile {
   name: string;
   description?: string;
   connectionId?: string;
-  type: 'Table' | 'Text & Query'; // Updated to use frontend types
+  type: 'Text & Query' | 'Pie Chart'; // Updated to use frontend types
   config: any;
   position: {
     x: number;
@@ -94,7 +94,7 @@ export interface CreateTileDto {
   // Required fields according to backend validation
   title: string; // Backend expects 'title' not 'name'
   dashboardId: string;
-  type: 'Table' | 'Text & Query'; // Using frontend types as that's what the API validation expects
+  type: 'Text & Query' | 'Pie Chart'; // Using frontend types as that's what the API validation expects
   connectionId: string; // Add connectionId as required field
   
   // Optional fields
